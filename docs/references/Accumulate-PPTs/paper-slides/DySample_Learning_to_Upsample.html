@@ -1,0 +1,1655 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="../assets/favicon.png" type="image/png" />
+<title>DySample: Learning to Upsample by Learning to Sample</title>
+<style>
+/* ========== RESET & BASE ========== */
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Inter', 'Noto Sans SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: #ffffff;
+  color: #000000;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+}
+
+/* ========== SLIDE CONTAINER ========== */
+.presentation {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.slide {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 5vh 7vw;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(20px);
+  transition: opacity 0.6s cubic-bezier(0.4,0,0.2,1),
+              visibility 0.6s cubic-bezier(0.4,0,0.2,1),
+              transform 0.6s cubic-bezier(0.4,0,0.2,1);
+  z-index: 1;
+}
+
+.slide.active {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: translateY(0) !important;
+  z-index: 10;
+}
+
+.slide.exit-up {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  transform: translateY(-20px) !important;
+}
+
+/* ========== PROGRESS BAR ========== */
+.progress-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #3966A2, #6191D3);
+  transition: width 0.4s cubic-bezier(0.4,0,0.2,1);
+  z-index: 100;
+  border-radius: 0 2px 2px 0;
+}
+
+/* ========== BOTTOM CONTROLS ========== */
+.controls {
+  position: fixed;
+  bottom: 2.5vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  z-index: 100;
+}
+
+.controls button {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid #3966A2;
+  background: #ffffff;
+  color: #3966A2;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.25s ease;
+}
+
+.controls button:hover {
+  background: #3966A2;
+  color: #ffffff;
+}
+
+.controls button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.page-counter {
+  font-size: 0.85rem;
+  color: #6191D3;
+  font-weight: 500;
+  min-width: 60px;
+  text-align: center;
+}
+
+/* ========== RIGHT DOTS ========== */
+.dots-nav {
+  position: fixed;
+  right: 1.5vw;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d0d8e8;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.dot.active {
+  background: #3966A2;
+  transform: scale(1.4);
+}
+
+.dot:hover {
+  background: #6191D3;
+}
+
+/* ========== TYPOGRAPHY ========== */
+.slide-title {
+  font-size: clamp(1.6rem, 3.2vw, 2.6rem);
+  font-weight: 800;
+  color: #3966A2;
+  margin-bottom: 3vh;
+  line-height: 1.3;
+}
+
+.slide-subtitle {
+  font-size: clamp(0.95rem, 1.6vw, 1.25rem);
+  color: #6191D3;
+  font-weight: 500;
+  margin-bottom: 2vh;
+  line-height: 1.6;
+}
+
+.text-accent {
+  color: #132843;
+  font-weight: 700;
+}
+
+.text-secondary {
+  color: #6191D3;
+}
+
+.text-muted {
+  color: #8a9bb5;
+  font-size: 0.9em;
+}
+
+/* ========== ANIMATIONS ========== */
+.anim {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.5s cubic-bezier(0.4,0,0.2,1),
+              transform 0.5s cubic-bezier(0.4,0,0.2,1);
+}
+
+.slide.active .anim {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.slide.active .anim:nth-child(1) { transition-delay: 0.08s; }
+.slide.active .anim:nth-child(2) { transition-delay: 0.16s; }
+.slide.active .anim:nth-child(3) { transition-delay: 0.24s; }
+.slide.active .anim:nth-child(4) { transition-delay: 0.32s; }
+.slide.active .anim:nth-child(5) { transition-delay: 0.40s; }
+.slide.active .anim:nth-child(6) { transition-delay: 0.48s; }
+.slide.active .anim:nth-child(7) { transition-delay: 0.56s; }
+.slide.active .anim:nth-child(8) { transition-delay: 0.64s; }
+
+/* ========== BADGE ========== */
+.badge {
+  display: inline-block;
+  padding: 0.3em 0.9em;
+  border-radius: 20px;
+  font-size: clamp(0.7rem, 1vw, 0.85rem);
+  font-weight: 600;
+  background: rgba(57, 102, 162, 0.1);
+  color: #3966A2;
+  border: 1px solid rgba(57, 102, 162, 0.2);
+}
+
+.badge-dark {
+  background: #132843;
+  color: #ffffff;
+  border-color: #132843;
+}
+
+/* ========== COVER TAG ========== */
+.cover-tag {
+  display: inline-block;
+  padding: 0.35em 1em;
+  border-radius: 20px;
+  font-size: clamp(0.75rem, 1.1vw, 0.9rem);
+  font-weight: 600;
+  background: rgba(57, 102, 162, 0.08);
+  color: #3966A2;
+  border: 1px solid rgba(57, 102, 162, 0.15);
+  margin-right: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* ========== CARD ========== */
+.card {
+  background: #f7f9fc;
+  border-radius: 12px;
+  padding: clamp(1rem, 2vw, 1.6rem);
+  border: 1px solid rgba(57, 102, 162, 0.08);
+}
+
+.card-grid {
+  display: grid;
+  gap: clamp(0.8rem, 1.5vw, 1.2rem);
+}
+
+.card-grid-2 { grid-template-columns: 1fr 1fr; }
+.card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.card-grid-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+.card-title {
+  font-size: clamp(0.85rem, 1.3vw, 1.05rem);
+  font-weight: 700;
+  color: #132843;
+  margin-bottom: 0.5em;
+}
+
+.card-text {
+  font-size: clamp(0.75rem, 1.1vw, 0.9rem);
+  color: #333;
+  line-height: 1.6;
+}
+
+/* ========== HIGHLIGHT BAR ========== */
+.highlight-bar {
+  background: linear-gradient(135deg, rgba(57, 102, 162, 0.08), rgba(97, 145, 211, 0.08));
+  border-left: 4px solid #3966A2;
+  border-radius: 0 8px 8px 0;
+  padding: clamp(0.8rem, 1.5vw, 1.2rem) clamp(1rem, 2vw, 1.5rem);
+  margin: 1vh 0;
+}
+
+.highlight-bar strong {
+  color: #132843;
+}
+
+/* ========== BULLET LIST ========== */
+.bullet-list {
+  list-style: none;
+  padding: 0;
+}
+
+.bullet-list li {
+  position: relative;
+  padding-left: 1.4em;
+  margin-bottom: 0.6em;
+  font-size: clamp(0.8rem, 1.2vw, 0.95rem);
+  line-height: 1.6;
+  color: #222;
+}
+
+.bullet-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3966A2;
+}
+
+.bullet-list li.accent::before {
+  background: #132843;
+  width: 7px;
+  height: 7px;
+}
+
+/* ========== STEPS ========== */
+.steps {
+  display: flex;
+  align-items: flex-start;
+  gap: clamp(0.5rem, 1.5vw, 1.2rem);
+  margin: 1vh 0;
+}
+
+.step {
+  flex: 1;
+  text-align: center;
+  position: relative;
+}
+
+.step-num {
+  width: clamp(32px, 3vw, 42px);
+  height: clamp(32px, 3vw, 42px);
+  border-radius: 50%;
+  background: #3966A2;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: clamp(0.8rem, 1.2vw, 1rem);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 0.5em;
+}
+
+.step-label {
+  font-size: clamp(0.7rem, 1vw, 0.85rem);
+  font-weight: 600;
+  color: #132843;
+  line-height: 1.4;
+}
+
+.step-desc {
+  font-size: clamp(0.65rem, 0.9vw, 0.78rem);
+  color: #6191D3;
+  margin-top: 0.3em;
+  line-height: 1.4;
+}
+
+.step-arrow {
+  font-size: clamp(1rem, 1.5vw, 1.4rem);
+  color: #6191D3;
+  padding-top: clamp(10px, 1.2vw, 16px);
+  flex-shrink: 0;
+}
+
+/* ========== GLOW ========== */
+.glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.35;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.glow-blue {
+  width: clamp(200px, 30vw, 400px);
+  height: clamp(200px, 30vw, 400px);
+  background: rgba(97, 145, 211, 0.3);
+}
+
+.glow-purple {
+  width: clamp(180px, 25vw, 350px);
+  height: clamp(180px, 25vw, 350px);
+  background: rgba(57, 102, 162, 0.25);
+}
+
+.glow-yellow {
+  width: clamp(150px, 20vw, 280px);
+  height: clamp(150px, 20vw, 280px);
+  background: rgba(255, 200, 87, 0.2);
+}
+
+/* ========== QUOTE BLOCK ========== */
+.quote-block {
+  border-left: 3px solid #6191D3;
+  padding: 0.8em 1.2em;
+  background: rgba(97, 145, 211, 0.05);
+  border-radius: 0 8px 8px 0;
+  font-style: italic;
+  color: #132843;
+  font-size: clamp(0.85rem, 1.2vw, 1rem);
+  line-height: 1.6;
+}
+
+/* ========== TABLE ========== */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: clamp(0.72rem, 1vw, 0.88rem);
+}
+
+.data-table th {
+  background: #3966A2;
+  color: #ffffff;
+  padding: 0.6em 1em;
+  text-align: center;
+  font-weight: 600;
+}
+
+.data-table th:first-child {
+  border-radius: 8px 0 0 0;
+}
+
+.data-table th:last-child {
+  border-radius: 0 8px 0 0;
+}
+
+.data-table td {
+  padding: 0.55em 1em;
+  text-align: center;
+  border-bottom: 1px solid rgba(57, 102, 162, 0.1);
+  color: #222;
+}
+
+.data-table tr:nth-child(even) td {
+  background: rgba(57, 102, 162, 0.03);
+}
+
+.data-table tr.highlight-row td {
+  background: rgba(57, 102, 162, 0.08);
+  font-weight: 600;
+  color: #132843;
+}
+
+/* ========== FLOW DIAGRAM ========== */
+.flow-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.4rem, 1vw, 0.8rem);
+  margin: 1.5vh 0;
+  flex-wrap: wrap;
+}
+
+.flow-box {
+  padding: clamp(0.5em, 1vw, 0.8em) clamp(1em, 1.8vw, 1.5em);
+  border-radius: 8px;
+  font-size: clamp(0.72rem, 1vw, 0.88rem);
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.flow-box-primary {
+  background: #3966A2;
+  color: #ffffff;
+}
+
+.flow-box-accent {
+  background: #132843;
+  color: #ffffff;
+}
+
+.flow-box-light {
+  background: rgba(57, 102, 162, 0.1);
+  color: #3966A2;
+  border: 1px solid rgba(57, 102, 162, 0.2);
+}
+
+.flow-arrow {
+  color: #6191D3;
+  font-size: clamp(1rem, 1.5vw, 1.4rem);
+  flex-shrink: 0;
+}
+
+/* ========== METRIC ========== */
+.metric {
+  text-align: center;
+}
+
+.metric-value {
+  font-size: clamp(1.8rem, 3vw, 2.8rem);
+  font-weight: 800;
+  color: #3966A2;
+  line-height: 1.1;
+}
+
+.metric-label {
+  font-size: clamp(0.7rem, 1vw, 0.85rem);
+  color: #6191D3;
+  margin-top: 0.3em;
+  font-weight: 500;
+}
+
+/* ========== COVER SLIDE ========== */
+.cover-slide {
+  justify-content: center;
+  align-items: flex-start;
+  text-align: left;
+}
+
+.cover-slide .slide-title {
+  font-size: clamp(1.8rem, 3.6vw, 2.8rem);
+  margin-bottom: 1.5vh;
+  line-height: 1.2;
+}
+
+.cover-slide .slide-subtitle {
+  font-size: clamp(1rem, 1.8vw, 1.4rem);
+  margin-bottom: 2.5vh;
+}
+
+.cover-tags {
+  margin-bottom: 3vh;
+}
+
+.cover-author {
+  font-size: clamp(0.8rem, 1.2vw, 0.95rem);
+  color: #6191D3;
+  font-weight: 500;
+}
+
+/* ========== TWO COLUMN ========== */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: clamp(1.5rem, 3vw, 2.5rem);
+  align-items: start;
+}
+
+.three-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: clamp(1rem, 2vw, 1.5rem);
+  align-items: start;
+}
+
+/* ========== FORMULA ========== */
+.formula {
+  background: rgba(19, 40, 67, 0.05);
+  border: 1px solid rgba(57, 102, 162, 0.12);
+  border-radius: 8px;
+  padding: 0.8em 1.5em;
+  font-family: 'Courier New', monospace;
+  font-size: clamp(0.85rem, 1.2vw, 1.05rem);
+  color: #132843;
+  text-align: center;
+  margin: 1vh 0;
+  font-weight: 600;
+}
+
+/* ========== COMPARISON ========== */
+.compare-row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+  align-items: center;
+  margin: 0.8vh 0;
+}
+
+.compare-cell {
+  padding: 0.8em 1em;
+  border-radius: 8px;
+  font-size: clamp(0.75rem, 1.1vw, 0.9rem);
+  line-height: 1.5;
+}
+
+.compare-cell.left {
+  background: rgba(255, 107, 107, 0.06);
+  border: 1px solid rgba(255, 107, 107, 0.15);
+  text-align: right;
+}
+
+.compare-cell.right {
+  background: rgba(76, 175, 80, 0.06);
+  border: 1px solid rgba(76, 175, 80, 0.15);
+}
+
+.compare-vs {
+  font-weight: 800;
+  color: #6191D3;
+  font-size: clamp(0.9rem, 1.3vw, 1.1rem);
+}
+
+/* ========== SECTION LABEL ========== */
+.section-label {
+  font-size: clamp(0.7rem, 0.9vw, 0.8rem);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6191D3;
+  margin-bottom: 0.5em;
+}
+
+/* ========== FIGURE ========== */
+.figure-box {
+  background: #f7f9fc;
+  border-radius: 12px;
+  padding: clamp(0.8rem, 1.5vw, 1.2rem);
+  border: 1px solid rgba(57, 102, 162, 0.08);
+  text-align: center;
+}
+
+.figure-box img {
+  max-width: 100%;
+  max-height: 36vh;
+  border-radius: 8px;
+}
+
+.figure-caption {
+  font-size: clamp(0.7rem, 0.9vw, 0.82rem);
+  color: #8a9bb5;
+  margin-top: 0.6em;
+}
+
+/* ========== END SLIDE ========== */
+.end-slide {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.end-slide .slide-title {
+  color: #3966A2;
+}
+
+/* ========== RESPONSIVE ========== */
+@media (max-width: 900px) {
+  .card-grid-2, .card-grid-3, .card-grid-4, .two-col, .three-col {
+    grid-template-columns: 1fr;
+  }
+  .compare-row {
+    grid-template-columns: 1fr;
+  }
+  .compare-vs { display: none; }
+  .steps { flex-direction: column; }
+  .step-arrow { transform: rotate(90deg); }
+  .dots-nav { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="presentation" id="presentation">
+
+  <!-- ==================== SLIDE 1: COVER ==================== -->
+  <div class="slide cover-slide active" data-index="0">
+    <div class="glow glow-blue" style="top: -10%; right: -5%;"></div>
+    <div class="glow glow-purple" style="bottom: -10%; left: -5%;"></div>
+    <div class="anim">
+      <div class="cover-tags">
+        <span class="cover-tag">ICCV 2023</span>
+        <span class="cover-tag">HUST</span>
+        <span class="cover-tag">Dynamic Upsampling</span>
+      </div>
+    </div>
+    <h1 class="slide-title anim">Learning to Upsample<br>by Learning to Sample</h1>
+    <p class="slide-subtitle anim">DySample：基于点采样的超轻量动态上采样器</p>
+    <div class="anim">
+      <div class="highlight-bar" style="max-width: 720px;">
+        <strong>核心贡献：</strong>绕过动态卷积，从<span class="text-accent">点采样</span>视角重新定义上采样，仅依赖 PyTorch 内置函数，在五项密集预测任务上超越所有现有动态上采样器。
+      </div>
+    </div>
+    <p class="cover-author anim">Wenze Liu, Hao Lu*, Hongtao Fu, Zhiguo Cao<br>School of Artificial Intelligence and Automation, Huazhong University of Science and Technology</p>
+  </div>
+
+  <!-- ==================== SLIDE 2: ABSTRACT ==================== -->
+  <div class="slide" data-index="1">
+    <div class="glow glow-blue" style="top: -15%; right: 10%;"></div>
+    <div class="anim"><span class="badge">ABSTRACT</span></div>
+    <h2 class="slide-title anim">论文摘要</h2>
+    <div class="anim">
+      <div class="quote-block" style="margin-bottom: 2vh;">
+        We present DySample, an ultra-lightweight and effective dynamic upsampler. While impressive performance gains have been witnessed from recent kernel-based dynamic upsamplers such as CARAFE, FADE, and SAPA, they introduce much workload, mostly due to the time-consuming dynamic convolution and the additional sub-network used to generate dynamic kernels.
+      </div>
+    </div>
+    <div class="anim">
+      <div class="card" style="margin-bottom: 1.5vh;">
+        <div class="card-title">研究动机</div>
+        <p class="card-text">现有基于核的动态上采样器（CARAFE、FADE、SAPA）引入了动态卷积和额外子网络，计算开销大、需要定制 CUDA 实现，且 FADE/SAPA 依赖高分辨率引导特征，限制了应用场景。</p>
+      </div>
+    </div>
+    <div class="anim">
+      <div class="card" style="margin-bottom: 1.5vh;">
+        <div class="card-title">方法概述</div>
+        <ul class="bullet-list">
+          <li>绕过动态卷积，从<span class="text-accent">点采样</span>视角重新定义上采样过程</li>
+          <li>使用 PyTorch 内置 <span class="text-accent">grid_sample</span> 函数实现，无需定制 CUDA 包</li>
+          <li>从朴素设计出发，逐步增强上采样行为，得到 DySample</li>
+          <li>在五项密集预测任务上全面超越现有上采样器</li>
+        </ul>
+      </div>
+    </div>
+    <div class="anim">
+      <div class="highlight-bar">
+        <strong>核心结果：</strong>相比 CARAFE，DySample 在 MaskFormer-SwinB 上性能提升高出 <span class="text-accent">46%</span>，但仅需 <span class="text-accent">3%</span> 的参数和 <span class="text-accent">20%</span> 的 FLOPs，推理延迟接近双线性插值（6.2ms vs 1.6ms）。
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 3: INTRODUCTION - BACKGROUND ==================== -->
+  <div class="slide" data-index="2">
+    <div class="glow glow-purple" style="bottom: -10%; left: 5%;"></div>
+    <div class="anim"><span class="badge">INTRODUCTION</span></div>
+    <h2 class="slide-title anim">研究背景：特征上采样的挑战</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.2vh;">
+            <div class="card-title">上采样在密集预测中的关键角色</div>
+            <ul class="bullet-list">
+              <li>语义/实例/全景分割、目标检测、深度估计等任务</li>
+              <li>骨干网络输出多尺度特征，低分辨率特征需上采样恢复</li>
+              <li>上采样质量直接影响逐像素预测精度</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.2vh;">
+            <div class="card-title">传统上采样方法的局限</div>
+            <ul class="bullet-list">
+              <li><span class="text-accent">最近邻 / 双线性插值</span>：固定规则，忽略语义信息</li>
+              <li><span class="text-accent">反卷积</span>：棋盘格伪影问题</li>
+              <li><span class="text-accent">Pixel Shuffle</span>：对高级任务不够友好</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card" style="border-left: 4px solid #c0392b; margin-bottom: 1.2vh;">
+            <div class="card-title" style="color: #c0392b;">基于核的动态上采样器的问题</div>
+            <ul class="bullet-list">
+              <li class="accent"><span class="text-accent">CARAFE</span>：子网络生成动态卷积核，结构复杂</li>
+              <li class="accent"><span class="text-accent">FADE / SAPA</span>：需要高分辨率引导特征</li>
+              <li class="accent">需要定制 CUDA 实现，推理延迟高</li>
+              <li class="accent">高分辨率引导特征增加计算量，缩小应用范围</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="quote-block">
+            现代架构（如 FPN）中高分辨率特征在上采样后才与低分辨率特征融合，因此高分辨率特征作为上采样器输入并非必要。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 4: INTRODUCTION - MOTIVATION & CONTRIBUTIONS ==================== -->
+  <div class="slide" data-index="3">
+    <div class="glow glow-blue" style="top: -8%; left: 50%;"></div>
+    <div class="anim"><span class="badge">INTRODUCTION</span></div>
+    <h2 class="slide-title anim">核心思想与主要贡献</h2>
+    <div class="anim">
+      <div class="highlight-bar" style="margin-bottom: 2vh;">
+        <strong>核心洞察：</strong>回到上采样的本质——<span class="text-accent">点采样</span>。假设输入特征被双线性插值到连续空间，生成内容感知的采样点来重新采样该连续映射。
+      </div>
+    </div>
+    <div class="card-grid card-grid-3">
+      <div class="anim">
+        <div class="card" style="border-top: 3px solid #3966A2; height: 100%;">
+          <div class="card-title">1. 全新范式</div>
+          <ul class="bullet-list">
+            <li>绕过核生成范式</li>
+            <li>从点采样视角重构上采样</li>
+            <li>仅用 PyTorch 内置函数</li>
+            <li>无需定制 CUDA 包</li>
+          </ul>
+        </div>
+      </div>
+      <div class="anim">
+        <div class="card" style="border-top: 3px solid #132843; height: 100%;">
+          <div class="card-title">2. 逐步增强设计</div>
+          <ul class="bullet-list">
+            <li>朴素设计 &rarr; 逐步改进</li>
+            <li>初始采样位置优化</li>
+            <li>偏移范围约束（静态/动态）</li>
+            <li>分组策略 &amp; LP/PL 变体</li>
+          </ul>
+        </div>
+      </div>
+      <div class="anim">
+        <div class="card" style="border-top: 3px solid #6191D3; height: 100%;">
+          <div class="card-title">3. 超轻量 &amp; 高性能</div>
+          <ul class="bullet-list">
+            <li>参数量仅为 CARAFE 的 3%</li>
+            <li>FLOPs 仅为 CARAFE 的 20%</li>
+            <li>推理延迟接近双线性插值</li>
+            <li>五项任务全面领先</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="anim" style="margin-top: 2vh;">
+      <div class="figure-box" style="padding: 0.8rem;">
+        <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig1.png" alt="Figure 1" style="max-height: 28vh;">
+        <div class="figure-caption">图1：不同上采样器的性能、推理速度与 GFLOPs 对比（圆圈大小表示 GFLOPs 开销）</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 5: RELATED WORK ==================== -->
+  <div class="slide" data-index="4">
+    <div class="glow glow-purple" style="top: 5%; right: -5%;"></div>
+    <div class="anim"><span class="badge">RELATED WORK</span></div>
+    <h2 class="slide-title anim">相关工作</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">特征上采样</div>
+            <ul class="bullet-list">
+              <li><span class="text-accent">NN / Bilinear</span>：固定规则插值，忽略语义</li>
+              <li><span class="text-accent">Max Unpooling</span>（SegNet）：保留边缘但引入噪声</li>
+              <li><span class="text-accent">Deconvolution</span>：卷积的逆操作，存在棋盘格伪影</li>
+              <li><span class="text-accent">Pixel Shuffle</span>：卷积扩通道后 reshape 增分辨率</li>
+              <li><span class="text-accent">CARAFE</span>：子网络生成内容感知动态卷积核</li>
+              <li><span class="text-accent">FADE</span>：融合高低分辨率特征生成动态核</li>
+              <li><span class="text-accent">SAPA</span>：引入点归属概念，计算相似性感知核</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">动态采样</div>
+            <ul class="bullet-list">
+              <li><span class="text-accent">可变形卷积</span>（Dai et al. / Zhu et al.）：矩形窗口采样 &rarr; 偏移点采样</li>
+              <li><span class="text-accent">Deformable DETR</span>：相对于 query 采样关键点</li>
+              <li><span class="text-accent">Seam Carving</span>：内容感知的图像缩放</li>
+              <li><span class="text-accent">Zoom to Learn</span>：显著性引导的下采样</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="highlight-bar">
+            <strong>DySample 的定位：</strong>不同于基于核的上采样器，将上采样的本质理解为<span class="text-accent">点重采样</span>，遵循动态采样的精神，用简单设计实现强效且高效的上采样。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 6: METHOD - PRELIMINARY ==================== -->
+  <div class="slide" data-index="5">
+    <div class="glow glow-blue" style="bottom: -10%; left: -3%;"></div>
+    <div class="anim"><span class="badge">METHOD &mdash; 3.1</span></div>
+    <h2 class="slide-title anim">预备知识：网格采样与朴素实现</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">Grid Sampling 定义</div>
+            <p class="card-text" style="margin-bottom: 0.8em;">给定特征图 X（C&times;H&times;W）和采样集 S（2&times;sH&times;sW），grid_sample 函数用 S 中的位置重采样 X：</p>
+            <div class="formula">
+              X&prime; = grid_sample(X, S)
+            </div>
+            <p class="card-text" style="margin-top: 0.5em;">S 的第一维表示 x、y 坐标，将假设双线性插值后的 X 重采样为 X&prime;（C&times;sH&times;sW）。</p>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card">
+            <div class="card-title">朴素实现（Naive）</div>
+            <ul class="bullet-list">
+              <li>线性层生成偏移 O（2s&sup2;&times;H&times;W）</li>
+              <li>Pixel Shuffle 重塑为 2&times;sH&times;sW</li>
+              <li>采样集 S = G + O（原始网格 + 偏移）</li>
+              <li>grid_sample(X, S) 得到上采样特征</li>
+            </ul>
+            <div class="formula" style="font-size: clamp(0.75rem, 1vw, 0.9rem);">
+              O = linear(X),&nbsp;&nbsp;S = G + O
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig2.png" alt="Figure 2" style="max-height: 50vh;">
+            <div class="figure-caption">图2：(a) 基于采样的动态上采样框架；(b) DySample 采样点生成器（上：静态范围因子，下：动态范围因子）</div>
+          </div>
+        </div>
+        <div class="anim" style="margin-top: 1.5vh;">
+          <div class="highlight-bar">
+            <strong>朴素实现的性能：</strong>Faster R-CNN 上 <span class="text-accent">37.9 AP</span>，SegFormer-B1 上 <span class="text-accent">41.9 mIoU</span>，已接近 CARAFE（38.6 AP / 42.8 mIoU）。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 7: METHOD - INITIAL SAMPLING POSITION ==================== -->
+  <div class="slide" data-index="6">
+    <div class="glow glow-purple" style="top: -10%; right: 0%;"></div>
+    <div class="anim"><span class="badge">METHOD &mdash; 3.2</span></div>
+    <h2 class="slide-title anim">改进一：初始采样位置</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">最近邻初始化 &rarr; 双线性初始化</div>
+            <ul class="bullet-list">
+              <li><span class="text-accent">最近邻初始化</span>：s&sup2; 个采样点共享同一初始位置</li>
+              <li>忽略 s&sup2; 个相邻点间的位置关系，初始分布不均匀</li>
+              <li>偏移全零时等价于 NN 插值</li>
+              <li class="accent"><span class="text-accent">双线性初始化</span>：分离初始位置使其均匀分布</li>
+              <li class="accent">偏移全零时等价于双线性插值</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card">
+            <div class="card-title">消融实验（Table 1）</div>
+            <table class="data-table" style="margin-top: 0.8em;">
+              <thead>
+                <tr>
+                  <th>初始化方式</th>
+                  <th>mIoU</th>
+                  <th>AP</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Nearest Init</td>
+                  <td>41.9</td>
+                  <td>37.9</td>
+                </tr>
+                <tr class="highlight-row">
+                  <td>Bilinear Init</td>
+                  <td>42.1</td>
+                  <td>38.1</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="card-text" style="margin-top: 0.5em;">双线性初始化带来 <span class="text-accent">+0.2 mIoU</span> 和 <span class="text-accent">+0.2 AP</span> 提升。</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig3.png" alt="Figure 3" style="max-height: 32vh;">
+            <div class="figure-caption">图3：初始采样位置与偏移范围。(a) 最近邻初始化；(b) 双线性初始化；(c) 局部约束偏移范围</div>
+          </div>
+        </div>
+        <div class="anim" style="margin-top: 1.5vh;">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig4.png" alt="Figure 4" style="max-height: 24vh;">
+            <div class="figure-caption">图4：偏移重叠导致的预测伪影。(a) 采样重叠 &rarr; (b) 边界混乱 &rarr; (c) 语义伪影</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 8: METHOD - OFFSET SCOPE ==================== -->
+  <div class="slide" data-index="7">
+    <div class="glow glow-blue" style="top: -5%; left: 30%;"></div>
+    <div class="anim"><span class="badge">METHOD &mdash; 3.2</span></div>
+    <h2 class="slide-title anim">改进二：偏移范围约束（静态范围因子）</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">问题分析</div>
+            <ul class="bullet-list">
+              <li>归一化层使输出值在 [-1, 1] 范围</li>
+              <li>局部 s&sup2; 采样点的偏移范围可能<span class="text-accent">严重重叠</span></li>
+              <li>重叠导致边界附近点值混乱</li>
+              <li>错误逐层传播，最终产生预测伪影</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">静态范围因子</div>
+            <p class="card-text" style="margin-bottom: 0.5em;">将偏移乘以 0.25，恰好满足重叠与非重叠的临界条件：</p>
+            <div class="formula">
+              O = 0.25 &middot; linear(X)
+            </div>
+            <ul class="bullet-list" style="margin-top: 0.5em;">
+              <li>局部约束采样位置的活动范围</li>
+              <li>性能提升至 <span class="text-accent">38.3 AP (+0.2)</span> 和 <span class="text-accent">42.4 mIoU (+0.3)</span></li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="quote-block">
+            Remark：乘以因子是软解决方案，无法完全消除重叠。尝试用 tanh 严格约束到 [-0.25, 0.25] 效果更差——显式约束限制了表示能力。
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card">
+            <div class="card-title">消融实验（Table 2）</div>
+            <table class="data-table" style="margin-top: 0.8em;">
+              <thead>
+                <tr>
+                  <th>因子</th>
+                  <th>mIoU</th>
+                  <th>AP</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>0.1</td>
+                  <td>42.2</td>
+                  <td>38.1</td>
+                </tr>
+                <tr class="highlight-row">
+                  <td>0.25</td>
+                  <td>42.4</td>
+                  <td>38.3</td>
+                </tr>
+                <tr>
+                  <td>0.5</td>
+                  <td>42.2</td>
+                  <td>38.1</td>
+                </tr>
+                <tr>
+                  <td>1.0</td>
+                  <td>42.1</td>
+                  <td>38.1</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="card-text" style="margin-top: 0.5em;">0.25 为最优因子值，过大导致重叠，过小限制灵活性。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 9: METHOD - GROUPING & DYNAMIC SCOPE ==================== -->
+  <div class="slide" data-index="8">
+    <div class="glow glow-purple" style="bottom: -10%; right: 5%;"></div>
+    <div class="anim"><span class="badge">METHOD &mdash; 3.2</span></div>
+    <h2 class="slide-title anim">改进三：分组策略 &amp; 动态范围因子</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh; border-top: 3px solid #3966A2;">
+            <div class="card-title">分组策略（Grouping）</div>
+            <ul class="bullet-list">
+              <li>沿通道维度将特征分为 g 组</li>
+              <li>每组共享同一采样集</li>
+              <li>g = 4 时达到 <span class="text-accent">38.6 AP (+0.3)</span>、<span class="text-accent">43.2 mIoU (+0.8)</span></li>
+              <li>平衡灵活性与参数量</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card" style="border-top: 3px solid #132843;">
+            <div class="card-title">动态范围因子</div>
+            <ul class="bullet-list">
+              <li>通过线性投影生成逐点动态范围因子</li>
+              <li>使用 sigmoid 和 0.5 静态因子</li>
+              <li>动态范围取值 [0, 0.5]，中心 0.25</li>
+              <li>性能提升至 <span class="text-accent">38.7 AP (+0.1)</span>、<span class="text-accent">43.3 mIoU (+0.1)</span></li>
+            </ul>
+            <div class="formula" style="font-size: clamp(0.7rem, 0.95vw, 0.85rem);">
+              O = 0.5&middot;&sigma;(linear&#8321;(X)) &middot; linear&#8322;(X)
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig5.png" alt="Figure 5" style="max-height: 26vh;">
+            <div class="figure-caption">图5：特征分组数消融研究（LP / PL 两种风格）</div>
+          </div>
+        </div>
+        <div class="anim" style="margin-top: 1.5vh;">
+          <div class="card">
+            <div class="card-title">动态范围因子消融（Table 3）</div>
+            <table class="data-table" style="margin-top: 0.8em;">
+              <thead>
+                <tr>
+                  <th>分组数</th>
+                  <th>动态因子</th>
+                  <th>mIoU</th>
+                  <th>AP</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>1</td>
+                  <td></td>
+                  <td>42.4</td>
+                  <td>38.3</td>
+                </tr>
+                <tr>
+                  <td>1</td>
+                  <td>&#10003;</td>
+                  <td>42.6</td>
+                  <td>38.4</td>
+                </tr>
+                <tr>
+                  <td>4</td>
+                  <td></td>
+                  <td>43.2</td>
+                  <td>38.6</td>
+                </tr>
+                <tr class="highlight-row">
+                  <td>4</td>
+                  <td>&#10003;</td>
+                  <td>43.3</td>
+                  <td>38.7</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 10: METHOD - DySample SERIES ==================== -->
+  <div class="slide" data-index="9">
+    <div class="glow glow-blue" style="top: -10%; left: -5%;"></div>
+    <div class="anim"><span class="badge">METHOD &mdash; 3.2 / 3.3</span></div>
+    <h2 class="slide-title anim">DySample 系列变体与生成风格</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">偏移生成风格</div>
+            <ul class="bullet-list">
+              <li><span class="text-accent">LP（linear + pixel shuffle）</span>：先生成偏移再重塑</li>
+              <li>更灵活、内存占用更小、推理更快</li>
+              <li>参数较多</li>
+              <li><span class="text-accent">PL（pixel shuffle + linear）</span>：先重塑再线性投影</li>
+              <li>参数量降至 1/s&#8308;</li>
+              <li>需额外存储 X，内存占用更大</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card">
+            <div class="card-title">DySample 四种变体</div>
+            <table class="data-table" style="margin-top: 0.8em;">
+              <thead>
+                <tr>
+                  <th>变体</th>
+                  <th>风格</th>
+                  <th>范围因子</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="highlight-row">
+                  <td>DySample</td>
+                  <td>LP</td>
+                  <td>静态</td>
+                </tr>
+                <tr class="highlight-row">
+                  <td>DySample+</td>
+                  <td>LP</td>
+                  <td>动态</td>
+                </tr>
+                <tr>
+                  <td>DySample-S</td>
+                  <td>PL</td>
+                  <td>静态</td>
+                </tr>
+                <tr>
+                  <td>DySample-S+</td>
+                  <td>PL</td>
+                  <td>动态</td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="card-text" style="margin-top: 0.5em;">LP 版分组数 g=4，PL 版分组数 g=8。</p>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig6.png" alt="Figure 6" style="max-height: 26vh;">
+            <div class="figure-caption">图6：偏移生成风格对比。(a) LP 风格 vs (b) PL 风格</div>
+          </div>
+        </div>
+        <div class="anim" style="margin-top: 1.5vh;">
+          <div class="highlight-bar">
+            <strong>与 CARAFE 的关系：</strong>DySample 使用 2&times;2 双线性核，CARAFE 使用 5&times;5 核。DySample 只需 2 通道特征图（g=1 时），CARAFE 需 K&times;K 通道，因此 DySample 更高效。
+          </div>
+        </div>
+        <div class="anim" style="margin-top: 1vh;">
+          <div class="quote-block">
+            与 SAPA 的关系：SAPA 寻找语义相似的聚类区域，需引导图；DySample 无需引导，更高效易用。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 11: METHOD - HOW DySample WORKS ==================== -->
+  <div class="slide" data-index="10">
+    <div class="glow glow-purple" style="top: 50%; left: -10%; transform: translateY(-50%);"></div>
+    <div class="anim"><span class="badge">METHOD &mdash; 3.3</span></div>
+    <h2 class="slide-title anim">DySample 工作机制可视化</h2>
+    <div class="anim">
+      <div class="figure-box">
+        <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig7.png" alt="Figure 7" style="max-height: 42vh;">
+        <div class="figure-caption">图7：DySample 上采样过程可视化。生成内容感知偏移构建新采样点，用双线性插值重采样输入特征图。箭头指示新采样位置。</div>
+      </div>
+    </div>
+    <div class="card-grid card-grid-3" style="margin-top: 2vh;">
+      <div class="anim">
+        <div class="card" style="border-top: 3px solid #3966A2;">
+          <div class="card-title">边缘点分裂</div>
+          <p class="card-text">边缘上的一个点被分为四个上采样点，使边缘更清晰。</p>
+        </div>
+      </div>
+      <div class="anim">
+        <div class="card" style="border-top: 3px solid #132843;">
+          <div class="card-title">语义感知分配</div>
+          <p class="card-text">黄色框点：左上点分到"天空"（较亮），其余三分到"房屋"（较暗）。</p>
+        </div>
+      </div>
+      <div class="anim">
+        <div class="card" style="border-top: 3px solid #6191D3;">
+          <div class="card-title">双线性插值构造</div>
+          <p class="card-text">右下子图展示右下上采样点如何通过双线性插值由四个邻域点构成。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 12: COMPLEXITY ANALYSIS ==================== -->
+  <div class="slide" data-index="11">
+    <div class="glow glow-blue" style="bottom: -10%; right: 10%;"></div>
+    <div class="anim"><span class="badge">METHOD &mdash; 3.4</span></div>
+    <h2 class="slide-title anim">复杂度分析：全面领先的计算效率</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig8.png" alt="Figure 8" style="max-height: 30vh;">
+            <div class="figure-caption">图8：复杂度分析。DySample 系列在 SegFormer-B1 上取得整体最佳性能，且在延迟、内存、训练时间、GFLOPs、参数量上均为最低。</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">推理延迟</div>
+            <ul class="bullet-list">
+              <li>DySample 系列：<span class="text-accent">6.2~7.6 ms</span>（256&times;120&times;120 特征图）</li>
+              <li>双线性插值：1.6 ms</li>
+              <li>CARAFE：12.6 ms &nbsp; FADE：22.9 ms &nbsp; SAPA-B：27.8 ms</li>
+              <li>DySample 延迟<span class="text-accent">接近双线性插值</span></li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card-grid card-grid-3">
+            <div class="metric">
+              <div class="metric-value">3%</div>
+              <div class="metric-label">vs CARAFE 参数量</div>
+            </div>
+            <div class="metric">
+              <div class="metric-value">20%</div>
+              <div class="metric-label">vs CARAFE FLOPs</div>
+            </div>
+            <div class="metric">
+              <div class="metric-value">46%</div>
+              <div class="metric-label">性能提升增益</div>
+            </div>
+          </div>
+        </div>
+        <div class="anim" style="margin-top: 1.5vh;">
+          <div class="highlight-bar">
+            <strong>关键优势：</strong>得益于高度优化的 PyTorch 内置函数，DySample 的反向传播速度也很快，<span class="text-accent">训练时间增加可忽略不计</span>。
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 13: EXPERIMENTS - SEMANTIC SEGMENTATION ==================== -->
+  <div class="slide" data-index="12">
+    <div class="glow glow-purple" style="top: -8%; left: 5%;"></div>
+    <div class="anim"><span class="badge">EXPERIMENTS &mdash; 4.1</span></div>
+    <h2 class="slide-title anim">实验一：语义分割</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">实验设置</div>
+            <ul class="bullet-list">
+              <li>数据集：<span class="text-accent">ADE20K</span></li>
+              <li>基线模型：SegFormer-B1（6 个上采样阶段）</li>
+              <li>强基线：MaskFormer（Swin-B / Swin-L）</li>
+              <li>评价指标：mIoU、bIoU（边界质量）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/table4.png" alt="Table 4" style="max-height: 38vh;">
+            <div class="figure-caption">表4：SegFormer-B1 语义分割结果。DySample-S+ 取得最佳 mIoU 43.58。</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">SegFormer-B1 关键结果</div>
+            <ul class="bullet-list">
+              <li>DySample-S+：<span class="text-accent">43.58 mIoU</span>（最佳）</li>
+              <li>CARAFE：42.82 mIoU</li>
+              <li>FADE：43.06 mIoU &nbsp; SAPA-B：43.20 mIoU</li>
+              <li>DySample-S+ 仅需 <span class="text-accent">12.3K</span> 参数</li>
+              <li>CARAFE 需 0.4M，FADE 需 0.3M</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card">
+            <div class="card-title">MaskFormer 结果</div>
+            <ul class="bullet-list">
+              <li>Swin-B：52.70 &rarr; <span class="text-accent">53.91 mIoU (+1.21)</span></li>
+              <li>Swin-L：54.10 &rarr; <span class="text-accent">54.90 mIoU (+0.80)</span></li>
+              <li>DySample 主要改善内部区域精度</li>
+              <li>引导式上采样器（FADE/SAPA）主要改善边界质量</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 14: EXPERIMENTS - DETECTION & INSTANCE SEG ==================== -->
+  <div class="slide" data-index="13">
+    <div class="glow glow-blue" style="top: -5%; right: 10%;"></div>
+    <div class="anim"><span class="badge">EXPERIMENTS &mdash; 4.2</span></div>
+    <h2 class="slide-title anim">实验二：目标检测与实例分割</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">实验设置</div>
+            <ul class="bullet-list">
+              <li>数据集：<span class="text-accent">MS COCO</span></li>
+              <li>目标检测基线：Faster R-CNN（FPN 4 个上采样阶段）</li>
+              <li>实例分割基线：Mask R-CNN（FPN 3 个上采样阶段）</li>
+              <li>骨干网络：ResNet-50 / ResNet-101</li>
+              <li>训练设置：mmdetection 1&times; schedule</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/table6.png" alt="Table 6" style="max-height: 30vh;">
+            <div class="figure-caption">表6：Faster R-CNN 目标检测结果。DySample+ 在 R50/R101 上均取得最佳 AP。</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh;">
+            <div class="card-title">目标检测关键结果</div>
+            <ul class="bullet-list">
+              <li>R50：DySample+ <span class="text-accent">38.7 AP</span>（最佳）</li>
+              <li>R101：DySample+ <span class="text-accent">40.5 AP</span>（+1.1 vs Nearest）</li>
+              <li>DySample+ R50 仅需 <span class="text-accent">65.5K</span> 额外参数</li>
+              <li>强骨干网络下仍有显著提升（R50 +1.2 vs R101 +1.1 box AP）</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/table7.png" alt="Table 7" style="max-height: 30vh;">
+            <div class="figure-caption">表7：Mask R-CNN 实例分割结果。DySample+ 在 R50/R101 上均取得最佳 mask AP。</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 15: EXPERIMENTS - PANOPTIC & DEPTH ==================== -->
+  <div class="slide" data-index="14">
+    <div class="glow glow-purple" style="bottom: -10%; left: 50%;"></div>
+    <div class="anim"><span class="badge">EXPERIMENTS &mdash; 4.3 / 4.4</span></div>
+    <h2 class="slide-title anim">实验三 & 四：全景分割与深度估计</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh; border-top: 3px solid #3966A2;">
+            <div class="card-title">全景分割（Panoptic FPN）</div>
+            <ul class="bullet-list">
+              <li>数据集：MS COCO &nbsp; 指标：PQ, SQ, RQ</li>
+              <li>R50：DySample+ <span class="text-accent">41.5 PQ</span>（+1.3 vs Nearest）</li>
+              <li>R101：DySample+ <span class="text-accent">43.0 PQ</span>（+0.8 vs Nearest）</li>
+              <li>在 PQ&#8345;&#8348; 和 PQ&#8345;&#8343; 上均有显著提升</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/table8.png" alt="Table 8" style="max-height: 28vh;">
+            <div class="figure-caption">表8：PanopticFPN 全景分割结果</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh; border-top: 3px solid #132843;">
+            <div class="card-title">单目深度估计（DepthFormer-SwinT）</div>
+            <ul class="bullet-list">
+              <li>数据集：NYU Depth V2</li>
+              <li>DySample+ 取得<span class="text-accent">最佳整体性能</span></li>
+              <li>&delta;&lt;1.25：0.878（+0.005 vs Bilinear）</li>
+              <li>AbsRel：0.116（-0.004）&nbsp; RMS：0.393（-0.009）</li>
+              <li>仅增加 92.2K 参数</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="figure-box">
+            <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/table9.png" alt="Table 9" style="max-height: 24vh;">
+            <div class="figure-caption">表9：DepthFormer 单目深度估计结果</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 16: QUALITATIVE RESULTS ==================== -->
+  <div class="slide" data-index="15">
+    <div class="glow glow-blue" style="top: 50%; right: -10%; transform: translateY(-50%);"></div>
+    <div class="anim"><span class="badge">EXPERIMENTS</span></div>
+    <h2 class="slide-title anim">定性可视化结果</h2>
+    <div class="anim">
+      <div class="figure-box">
+        <img src="2023 Dysample Learning_to_Upsample_by_Learning_to_Sample_assets/fig9.png" alt="Figure 9" style="max-height: 48vh;">
+        <div class="figure-caption">图9：定性可视化对比。从上到下：语义分割、目标检测、实例分割、全景分割、单目深度估计。</div>
+      </div>
+    </div>
+    <div class="card-grid card-grid-3" style="margin-top: 2vh;">
+      <div class="anim">
+        <div class="card">
+          <div class="card-title">语义分割</div>
+          <p class="card-text">DySample 输出与 CARAFE 类似，但边界更清晰；引导式上采样器边界更锐利但内部可能有误判。</p>
+        </div>
+      </div>
+      <div class="anim">
+        <div class="card">
+          <div class="card-title">检测与实例分割</div>
+          <p class="card-text">DySample 在目标定位和分割精度上全面领先，采样特征质量直接影响分类与定位。</p>
+        </div>
+      </div>
+      <div class="anim">
+        <div class="card">
+          <div class="card-title">深度估计</div>
+          <p class="card-text">DySample 生成准确、一致的深度图，如椅子区域的深度过渡平滑且精确。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 17: CONCLUSION ==================== -->
+  <div class="slide" data-index="16">
+    <div class="glow glow-purple" style="top: -10%; right: 10%;"></div>
+    <div class="glow glow-blue" style="bottom: -10%; left: 10%;"></div>
+    <div class="anim"><span class="badge">CONCLUSION</span></div>
+    <h2 class="slide-title anim">总结与展望</h2>
+    <div class="two-col">
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh; border-top: 3px solid #3966A2;">
+            <div class="card-title">核心贡献</div>
+            <ul class="bullet-list">
+              <li>提出 <span class="text-accent">DySample</span>：从点采样视角设计的动态上采样器</li>
+              <li>绕过核生成范式，仅用 PyTorch 内置函数</li>
+              <li>从朴素设计出发逐步改进，提供清晰的设计路径</li>
+              <li>在延迟、内存、训练时间、FLOPs、参数量上全面最优</li>
+              <li>五项密集预测任务上均取得最佳或接近最佳性能</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card" style="border-top: 3px solid #132843;">
+            <div class="card-title">DySample 可安全替代 NN/双线性插值</div>
+            <div class="highlight-bar" style="margin-top: 0.8em;">
+              <strong>结论：</strong>在有效性和效率上，DySample 均可作为现有密集预测模型中 NN / 双线性插值的<span class="text-accent">安全替代品</span>。
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="anim">
+          <div class="card" style="margin-bottom: 1.5vh; border-top: 3px solid #6191D3;">
+            <div class="card-title">与现有方法的关系</div>
+            <ul class="bullet-list">
+              <li><span class="text-accent">vs CARAFE</span>：用 2&times;2 双线性核替代 5&times;5 核，更高效</li>
+              <li><span class="text-accent">vs SAPA</span>：无需引导图，更通用</li>
+              <li><span class="text-accent">vs Deformable Attention</span>：为上采样设计，每位置采样单点</li>
+            </ul>
+          </div>
+        </div>
+        <div class="anim">
+          <div class="card" style="border-left: 4px solid #6191D3;">
+            <div class="card-title">未来工作</div>
+            <ul class="bullet-list">
+              <li class="accent">将 DySample 应用到<span class="text-accent">低级视觉任务</span></li>
+              <li class="accent">研究上采样与下采样的<span class="text-accent">联合建模</span></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== SLIDE 18: END ==================== -->
+  <div class="slide end-slide" data-index="17">
+    <div class="glow glow-blue" style="top: 50%; left: 50%; transform: translate(-50%, -50%);"></div>
+    <div class="anim">
+      <h2 class="slide-title" style="font-size: clamp(2rem, 4vw, 3rem);">Thank You</h2>
+    </div>
+    <div class="anim">
+      <div style="width: 48px; height: 3px; background: #3966A2; border-radius: 2px; margin: 1.5vh auto;"></div>
+    </div>
+    <div class="anim">
+      <p class="slide-subtitle" style="max-width: 600px; text-align: center; margin: 0 auto;">
+        DySample: Learning to Upsample by Learning to Sample<br>
+        <span class="text-accent" style="font-weight: 500;">ICCV 2023</span>
+      </p>
+    </div>
+    <div class="anim" style="margin-top: 3vh;">
+      <div class="cover-tags" style="text-align: center;">
+        <span class="cover-tag">Code: github.com/tiny-smart/dysample</span>
+      </div>
+    </div>
+    <div class="anim" style="margin-top: 2vh;">
+      <p class="text-muted" style="text-align: center;">
+        Wenze Liu &middot; Hao Lu &middot; Hongtao Fu &middot; Zhiguo Cao<br>
+        Huazhong University of Science and Technology
+      </p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ========== PROGRESS BAR ========== -->
+<div class="progress-bar" id="progressBar"></div>
+
+<!-- ========== BOTTOM CONTROLS ========== -->
+<div class="controls">
+  <button id="prevBtn" aria-label="上一页">&#8592;</button>
+  <span class="page-counter" id="pageCounter">1 / 18</span>
+  <button id="nextBtn" aria-label="下一页">&#8594;</button>
+</div>
+
+<!-- ========== RIGHT DOTS ========== -->
+<div class="dots-nav" id="dotsNav"></div>
+
+<script>
+(function() {
+  var slides = document.querySelectorAll('.slide');
+  var totalSlides = slides.length;
+  var currentIndex = 0;
+  var isTransitioning = false;
+  var progressBar = document.getElementById('progressBar');
+  var prevBtn = document.getElementById('prevBtn');
+  var nextBtn = document.getElementById('nextBtn');
+  var pageCounter = document.getElementById('pageCounter');
+  var dotsNav = document.getElementById('dotsNav');
+  for (var i = 0; i < totalSlides; i++) {
+    var dot = document.createElement('div');
+    dot.className = 'dot' + (i === 0 ? ' active' : '');
+    dot.setAttribute('data-index', i);
+    dot.addEventListener('click', function() {
+      var idx = parseInt(this.getAttribute('data-index'), 10);
+      goToSlide(idx);
+    });
+    dotsNav.appendChild(dot);
+  }
+  var dots = dotsNav.querySelectorAll('.dot');
+  function updateUI() {
+    var progress = ((currentIndex + 1) / totalSlides) * 100;
+    progressBar.style.width = progress + '%';
+    pageCounter.textContent = (currentIndex + 1) + ' / ' + totalSlides;
+    prevBtn.disabled = currentIndex === 0;
+    nextBtn.disabled = currentIndex === totalSlides - 1;
+    for (var i = 0; i < dots.length; i++) {
+      if (i === currentIndex) { dots[i].classList.add('active'); }
+      else { dots[i].classList.remove('active'); }
+    }
+  }
+  function goToSlide(index) {
+    if (index === currentIndex || isTransitioning) return;
+    if (index < 0 || index >= totalSlides) return;
+    isTransitioning = true;
+    var oldSlide = slides[currentIndex];
+    var newSlide = slides[index];
+    oldSlide.classList.remove('active');
+    oldSlide.classList.add('exit-up');
+    newSlide.classList.add('active');
+    currentIndex = index;
+    updateUI();
+    setTimeout(function() {
+      oldSlide.classList.remove('exit-up');
+      isTransitioning = false;
+    }, 650);
+  }
+  function nextSlide() {
+    if (currentIndex < totalSlides - 1) { goToSlide(currentIndex + 1); }
+  }
+  function prevSlide() {
+    if (currentIndex > 0) { goToSlide(currentIndex - 1); }
+  }
+  prevBtn.addEventListener('click', prevSlide);
+  nextBtn.addEventListener('click', nextSlide);
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+      e.preventDefault(); nextSlide();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault(); prevSlide();
+    } else if (e.key === 'Home') {
+      e.preventDefault(); goToSlide(0);
+    } else if (e.key === 'End') {
+      e.preventDefault(); goToSlide(totalSlides - 1);
+    }
+  });
+  var touchStartX = 0, touchStartY = 0;
+  document.addEventListener('touchstart', function(e) {
+    touchStartX = e.changedTouches[0].screenX;
+    touchStartY = e.changedTouches[0].screenY;
+  }, { passive: true });
+  document.addEventListener('touchend', function(e) {
+    var deltaX = e.changedTouches[0].screenX - touchStartX;
+    var deltaY = e.changedTouches[0].screenY - touchStartY;
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 50) {
+      if (deltaX < 0) { nextSlide(); } else { prevSlide(); }
+    }
+  }, { passive: true });
+  updateUI();
+})();
+</script>
+
+</body>
+</html>

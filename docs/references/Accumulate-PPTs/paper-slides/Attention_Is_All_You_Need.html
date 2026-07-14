@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="../assets/favicon.png" type="image/png" />
+<title>Attention Is All You Need</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#ffffff;--title:#3966A2;--emphasis:#132843;--secondary:#6191D3;
+  --text:#000000;--muted:#888;--card-bg:#f7f9fc;--border:#e2e8f0;
+  --radius:12px;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--text);
+  font-family:'Inter','Noto Sans SC',-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;
+  -webkit-font-smoothing:antialiased}
+
+/* ── Progress Bar ── */
+.progress-bar{position:fixed;top:0;left:0;height:3px;background:var(--secondary);
+  transition:width .4s cubic-bezier(.4,0,.2,1);z-index:100;border-radius:0 2px 2px 0}
+
+/* ── Slides Container ── */
+.slides{width:100%;height:100%;position:relative}
+
+/* ── Single Slide ── */
+.slide{position:absolute;inset:0;padding:5vh 7vw;display:flex;flex-direction:column;
+  justify-content:center;opacity:0;visibility:hidden;transform:translateY(30px);
+  transition:opacity .5s ease,visibility .5s ease,transform .5s ease}
+.slide.active{opacity:1!important;visibility:visible!important;transform:translateY(0)!important}
+.slide.exit-up{opacity:0!important;visibility:hidden!important;transform:translateY(-30px)!important}
+
+/* ── Typography ── */
+.slide h1{font-size:clamp(2rem,4.5vw,3.6rem);font-weight:800;color:var(--title);
+  line-height:1.2;margin-bottom:.6em;letter-spacing:-.02em}
+.slide h2{font-size:clamp(1.5rem,3vw,2.4rem);font-weight:700;color:var(--title);
+  line-height:1.25;margin-bottom:.5em}
+.slide h3{font-size:clamp(1rem,1.8vw,1.35rem);font-weight:600;color:var(--emphasis);
+  line-height:1.4;margin-bottom:.4em}
+.slide p,.slide li{font-size:clamp(.85rem,1.3vw,1.05rem);color:var(--text);
+  line-height:1.7;font-weight:400}
+.slide .sub{color:var(--secondary);font-size:clamp(.8rem,1.2vw,.95rem);margin-top:.2em}
+
+/* ── Badge ── */
+.badge{display:inline-block;padding:.25em .7em;border-radius:20px;font-size:clamp(.65rem,.9vw,.8rem);
+  font-weight:600;background:var(--card-bg);color:var(--secondary);border:1px solid var(--border)}
+
+/* ── Cover Tags ── */
+.cover-tags{display:flex;gap:.6em;flex-wrap:wrap;margin-top:1.2em}
+.cover-tag{padding:.3em .9em;border-radius:20px;font-size:clamp(.7rem,1vw,.85rem);
+  font-weight:500;background:rgba(57,102,162,.08);color:var(--title);border:1px solid rgba(57,102,162,.15)}
+
+/* ── Card ── */
+.card{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);
+  padding:clamp(.8em,1.5vw,1.3em);transition:box-shadow .2s}
+.card:hover{box-shadow:0 4px 20px rgba(57,102,162,.08)}
+.card-grid{display:grid;gap:clamp(.6em,1.2vw,1em)}
+.card-grid.cols-2{grid-template-columns:repeat(2,1fr)}
+.card-grid.cols-3{grid-template-columns:repeat(3,1fr)}
+.card-grid.cols-4{grid-template-columns:repeat(4,1fr)}
+
+/* ── Highlight Bar ── */
+.highlight-bar{border-left:3px solid var(--secondary);padding:.5em 1em;
+  background:rgba(97,145,211,.06);border-radius:0 var(--radius) var(--radius) 0;
+  margin:.5em 0;font-weight:500}
+
+/* ── Steps ── */
+.steps{display:flex;flex-direction:column;gap:.8em}
+.step{display:flex;align-items:flex-start;gap:.8em}
+.step-num{flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--title);
+  color:#fff;display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700}
+.step-body{flex:1}
+
+/* ── Bullet List ── */
+.bullet-list{list-style:none;padding:0}
+.bullet-list li{position:relative;padding-left:1.2em;margin-bottom:.35em}
+.bullet-list li::before{content:'';position:absolute;left:0;top:.55em;width:6px;height:6px;
+  border-radius:50%;background:var(--secondary)}
+
+/* ── Glow Decorations ── */
+.glow{position:absolute;border-radius:50%;filter:blur(80px);opacity:.18;pointer-events:none;z-index:0}
+.glow-blue{background:var(--secondary)}
+.glow-purple{background:#8b5cf6}
+.glow-yellow{background:#f59e0b}
+
+/* ── Animations ── */
+.anim{opacity:0;transform:translateY(18px);transition:opacity .5s ease,transform .5s ease}
+.slide.active .anim{opacity:1;transform:translateY(0)}
+.slide.active .anim:nth-child(1){transition-delay:.1s}
+.slide.active .anim:nth-child(2){transition-delay:.2s}
+.slide.active .anim:nth-child(3){transition-delay:.3s}
+.slide.active .anim:nth-child(4){transition-delay:.35s}
+.slide.active .anim:nth-child(5){transition-delay:.4s}
+.slide.active .anim:nth-child(6){transition-delay:.45s}
+.slide.active .anim:nth-child(7){transition-delay:.5s}
+.slide.active .anim:nth-child(8){transition-delay:.55s}
+
+/* ── Controls ── */
+.controls{position:fixed;bottom:2.5vh;left:50%;transform:translateX(-50%);
+  display:flex;align-items:center;gap:1.2em;z-index:100}
+.controls button{width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
+  background:var(--bg);color:var(--title);font-size:1.1rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;transition:all .2s}
+.controls button:hover{background:var(--card-bg);border-color:var(--secondary)}
+.controls button:disabled{opacity:.3;cursor:default}
+.page-counter{font-size:.8rem;color:var(--muted);font-weight:500;min-width:3em;text-align:center}
+
+/* ── Dots ── */
+.dots{position:fixed;right:2vw;top:50%;transform:translateY(-50%);
+  display:flex;flex-direction:column;gap:.6em;z-index:100}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--border);cursor:pointer;
+  transition:all .3s}
+.dot.active{background:var(--title);transform:scale(1.3)}
+
+/* ── Cover Specific ── */
+.cover-center{display:flex;flex-direction:column;align-items:center;text-align:center;justify-content:center}
+.cover-center h1{font-size:clamp(2.5rem,5.5vw,4.2rem)}
+.cover-center .subtitle{font-size:clamp(.95rem,1.6vw,1.25rem);color:var(--emphasis);
+  font-weight:400;margin-top:.3em;max-width:700px}
+.cover-center .authors{font-size:clamp(.75rem,1.1vw,.9rem);color:var(--muted);margin-top:1em}
+
+/* ── Table ── */
+.data-table{width:100%;border-collapse:collapse;font-size:clamp(.75rem,1.1vw,.9rem)}
+.data-table th{text-align:left;padding:.5em .8em;background:var(--card-bg);
+  color:var(--title);font-weight:600;border-bottom:2px solid var(--border)}
+.data-table td{padding:.45em .8em;border-bottom:1px solid var(--border)}
+.data-table tr:last-child td{border-bottom:none}
+.data-table .best{color:var(--title);font-weight:700}
+
+/* ── Comparison ── */
+.compare-row{display:grid;grid-template-columns:1fr auto 1fr;gap:1em;align-items:center}
+.compare-col{padding:1em;border-radius:var(--radius)}
+.compare-col.left{background:rgba(239,68,68,.04);border:1px solid rgba(239,68,68,.12)}
+.compare-col.right{background:rgba(34,197,94,.04);border:1px solid rgba(34,197,94,.12)}
+.compare-vs{font-size:clamp(1rem,1.5vw,1.3rem);font-weight:800;color:var(--muted)}
+
+/* ── Metric Card ── */
+.metric{display:flex;flex-direction:column;align-items:center;padding:clamp(.6em,1.2vw,1em);
+  text-align:center}
+.metric .value{font-size:clamp(1.4rem,2.5vw,2.2rem);font-weight:800;color:var(--title)}
+.metric .label{font-size:clamp(.65rem,.9vw,.8rem);color:var(--muted);margin-top:.2em}
+.metric .delta{font-size:clamp(.6rem,.85vw,.75rem);color:#16a34a;font-weight:600;margin-top:.15em}
+
+/* ── Formula ── */
+.formula{background:var(--card-bg);border:1px solid var(--border);border-radius:var(--radius);
+  padding:.8em 1.2em;font-family:'Courier New',monospace;font-size:clamp(.8rem,1.2vw,1rem);
+  color:var(--emphasis);text-align:center;margin:.5em 0}
+
+/* ── Key Finding ── */
+.key-finding{display:flex;align-items:flex-start;gap:.6em;padding:.6em 1em;
+  background:rgba(57,102,162,.05);border-radius:var(--radius);border:1px solid rgba(57,102,162,.1)}
+.key-finding .kf-icon{flex-shrink:0;width:24px;height:24px;border-radius:50%;
+  background:var(--title);color:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:.7rem;font-weight:700}
+
+/* ── Figure ── */
+.figure-caption{text-align:center;font-size:clamp(.7rem,1vw,.85rem);color:var(--muted);margin-top:.4em}
+.figure-img{max-width:100%;max-height:42vh;border-radius:var(--radius);border:1px solid var(--border);object-fit:contain;height:auto}
+
+/* ── Responsive tweaks ── */
+@media(max-width:768px){
+  .slide{padding:3vh 5vw}
+  .card-grid.cols-3,.card-grid.cols-4{grid-template-columns:repeat(2,1fr)}
+  .dots{display:none}
+  .compare-row{grid-template-columns:1fr;gap:.5em}
+  .compare-vs{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- Progress Bar -->
+<div class="progress-bar" id="progressBar"></div>
+
+<!-- Slides -->
+<div class="slides" id="slidesContainer">
+
+  <!-- ==================== Slide 1: Cover ==================== -->
+  <div class="slide active" data-index="0">
+    <div class="glow glow-blue" style="width:400px;height:400px;top:-100px;right:-80px"></div>
+    <div class="glow glow-purple" style="width:300px;height:300px;bottom:-80px;left:-60px"></div>
+    <div class="cover-center" style="position:relative;z-index:1">
+      <div class="anim">
+        <span class="badge" style="font-size:clamp(.7rem,1vw,.85rem);margin-bottom:1em">arXiv:1706.03762v7 [cs.CL] 2 Aug 2023</span>
+      </div>
+      <h1 class="anim">Attention Is All You Need</h1>
+      <p class="subtitle anim">基于注意力机制的全新序列转导模型架构 —— Transformer</p>
+      <p class="authors anim">Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz Kaiser, Illia Polosukhin</p>
+      <p class="authors anim" style="margin-top:.3em">Google Brain, Google Research, University of Toronto</p>
+      <div class="cover-tags anim">
+        <span class="cover-tag">NIPS 2017</span>
+        <span class="cover-tag">机器翻译</span>
+        <span class="cover-tag">自注意力</span>
+        <span class="cover-tag">Transformer</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 2: Abstract ==================== -->
+  <div class="slide" data-index="1">
+    <div class="glow glow-blue" style="width:350px;height:350px;top:-80px;left:-60px"></div>
+    <h2 class="anim">摘要</h2>
+    <div class="card anim" style="margin-top:1em;position:relative;z-index:1">
+      <p style="line-height:1.85">
+        当前主流的序列转导模型基于复杂的循环或卷积神经网络，包含编码器与解码器，并通过<strong style="color:var(--emphasis)">注意力机制</strong>连接二者。
+      </p>
+      <p style="margin-top:.6em;line-height:1.85">
+        本文提出一种全新的简单网络架构 —— <strong style="color:var(--emphasis)">Transformer</strong>，它完全基于注意力机制，<strong style="color:var(--emphasis)">彻底摒弃了循环与卷积</strong>。
+      </p>
+      <p style="margin-top:.6em;line-height:1.85">
+        在两个机器翻译任务上的实验表明：Transformer 模型在质量上更优、并行度更高、训练时间显著更短。在 WMT 2014 英德翻译任务上取得 <strong style="color:var(--emphasis)">28.4 BLEU</strong>，英德翻译取得 <strong style="color:var(--emphasis)">41.8 BLEU</strong>，且训练成本远低于已有最优模型。
+      </p>
+    </div>
+    <div class="card-grid cols-3 anim" style="margin-top:1em">
+      <div class="card metric">
+        <div class="value">28.4</div>
+        <div class="label">EN-DE BLEU</div>
+        <div class="delta">+2.0 超越最优</div>
+      </div>
+      <div class="card metric">
+        <div class="value">41.8</div>
+        <div class="label">EN-FR BLEU</div>
+        <div class="delta">单模型 SOTA</div>
+      </div>
+      <div class="card metric">
+        <div class="value">12h</div>
+        <div class="label">8x P100 训练</div>
+        <div class="delta">极低成本</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 3: Background - RNN Limitations ==================== -->
+  <div class="slide" data-index="2">
+    <div class="glow glow-yellow" style="width:300px;height:300px;bottom:-60px;right:-40px"></div>
+    <h2 class="anim">研究背景：RNN 的固有局限</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em;position:relative;z-index:1">
+      <div class="card">
+        <h3>序列计算的瓶颈</h3>
+        <ul class="bullet-list">
+          <li>RNN、LSTM、GRU 等模型按时间步顺序计算隐藏状态 <em>h<sub>t</sub> = f(h<sub>t-1</sub>, x<sub>t</sub>)</em></li>
+          <li>这种固有的<strong>顺序性</strong>阻碍了训练样本内的并行化</li>
+          <li>长序列下内存限制严重影响批处理效率</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>长距离依赖的挑战</h3>
+        <ul class="bullet-list">
+          <li>长程信号需穿越大量时间步，梯度易消失或爆炸</li>
+          <li>位置相距越远，模型建立依赖关系越困难</li>
+          <li>尽管已有分解技巧与条件计算改进效率，<strong>顺序约束依然存在</strong></li>
+        </ul>
+      </div>
+    </div>
+    <div class="highlight-bar anim" style="margin-top:1em">
+      现有注意力机制几乎都与循环网络结合使用。我们提出一个关键问题：<strong style="color:var(--emphasis)">能否完全用注意力替代循环？</strong>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 4: Core Idea ==================== -->
+  <div class="slide" data-index="3">
+    <div class="glow glow-purple" style="width:350px;height:350px;top:-80px;right:-60px"></div>
+    <h2 class="anim">核心思想：Attention Is All You Need</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em;position:relative;z-index:1">
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center">
+        <h3 style="margin-bottom:.6em">Transformer 核心主张</h3>
+        <ul class="bullet-list">
+          <li>完全基于<strong style="color:var(--emphasis)">自注意力机制</strong>计算输入与输出的全局依赖关系</li>
+          <li>彻底<strong>移除循环与卷积</strong>，所有位置可并行计算</li>
+          <li>任意两位置间的路径长度缩短至 <strong>O(1)</strong></li>
+          <li>训练 12 小时即可在翻译质量上达到新 SOTA</li>
+        </ul>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center">
+        <h3 style="margin-bottom:.6em">与已有工作的区别</h3>
+        <div class="compare-row" style="display:flex;flex-direction:column;gap:.6em">
+          <div class="key-finding">
+            <span class="kf-icon">1</span>
+            <div><strong>Neural GPU / ByteNet / ConvS2S</strong>：基于卷积，长距离依赖仍需 O(log n) 或 O(n) 操作</div>
+          </div>
+          <div class="key-finding">
+            <span class="kf-icon">2</span>
+            <div><strong>Self-attention 已有应用</strong>：阅读理解、摘要、文本蕴含等，但均未完全取代 RNN</div>
+          </div>
+          <div class="key-finding">
+            <span class="kf-icon">3</span>
+            <div><strong>Transformer</strong>：首个<strong style="color:var(--emphasis)">完全依赖自注意力</strong>的序列转导模型</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 5: Model Architecture ==================== -->
+  <div class="slide" data-index="4">
+    <h2 class="anim">模型架构总览</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em;align-items:start">
+      <div class="card" style="text-align:center;display:flex;flex-direction:column;justify-content:center">
+        <img src="Attention_Is_All_You_Need_assets/crop_001_page003_reg1.png" alt="Transformer Architecture" class="figure-img" style="max-height:58vh">
+        <p class="figure-caption">Figure 1: The Transformer —— 模型架构图（Encoder 左半部，Decoder 右半部）</p>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:.8em">
+        <div class="card">
+          <h3>Encoder</h3>
+          <p class="sub">N = 6 层堆叠，每层含 Multi-Head Self-Attention + Position-wise FFN，残差连接与层归一化</p>
+        </div>
+        <div class="card">
+          <h3>Decoder</h3>
+          <p class="sub">N = 6 层堆叠，额外增加 Encoder-Decoder Attention，Masked Self-Attention 防止看到未来信息</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 6: Scaled Dot-Product Attention ==================== -->
+  <div class="slide" data-index="5">
+    <div class="glow glow-blue" style="width:300px;height:300px;bottom:-60px;left:-40px"></div>
+    <h2 class="anim">Scaled Dot-Product Attention</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em;position:relative;z-index:1">
+      <div class="card" style="text-align:center">
+        <img src="Attention_Is_All_You_Need_assets/crop_003_page004_reg2.png" alt="Scaled Dot-Product Attention" class="figure-img" style="max-height:32vh">
+        <p class="figure-caption">Figure 2 (left): Scaled Dot-Product Attention</p>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center">
+        <h3>计算过程</h3>
+        <div class="formula">Attention(Q, K, V) = softmax(QK<sup>T</sup> / sqrt(d<sub>k</sub>)) V</div>
+        <ul class="bullet-list" style="margin-top:.5em">
+          <li>计算 Query 与所有 Key 的点积，除以 <strong>sqrt(d<sub>k</sub>)</strong> 进行缩放</li>
+          <li>应用 softmax 获得权重，加权求和得到输出</li>
+          <li>缩放防止 d<sub>k</sub> 较大时点积幅度过大，softmax 梯度消失</li>
+        </ul>
+        <div class="highlight-bar" style="margin-top:.6em">
+          Dot-Product Attention 比 Additive Attention 更快、更省内存，因可用高度优化的矩阵乘法实现
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 7: Multi-Head Attention ==================== -->
+  <div class="slide" data-index="6">
+    <h2 class="anim">Multi-Head Attention</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em">
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center">
+        <h3>多头并行的动机</h3>
+        <ul class="bullet-list">
+          <li>单头注意力会<strong>平均抑制</strong>不同子空间的信息</li>
+          <li>多头允许模型在不同表示子空间、不同位置<strong>联合关注</strong>信息</li>
+          <li>每个头独立学习不同的语义/句法关系</li>
+        </ul>
+        <div class="formula" style="margin-top:.8em">MultiHead(Q,K,V) = Concat(head<sub>1</sub>,...,head<sub>h</sub>)W<sup>O</sup></div>
+        <p class="sub" style="margin-top:.4em">其中 head<sub>i</sub> = Attention(QW<sub>i</sub><sup>Q</sup>, KW<sub>i</sub><sup>K</sup>, VW<sub>i</sub><sup>V</sup>)</p>
+        <div class="highlight-bar" style="margin-top:.6em">
+          本文使用 h = 8 头，d<sub>k</sub> = d<sub>v</sub> = d<sub>model</sub> / h = 64，总计算量与单头全维度注意力相近
+        </div>
+      </div>
+      <div class="card" style="text-align:center">
+        <img src="Attention_Is_All_You_Need_assets/crop_002_page004_reg1.png" alt="Multi-Head Attention" class="figure-img" style="max-height:36vh">
+        <p class="figure-caption">Figure 2 (right): Multi-Head Attention</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 8: Three Applications of Attention ==================== -->
+  <div class="slide" data-index="7">
+    <div class="glow glow-yellow" style="width:300px;height:300px;top:-60px;right:-40px"></div>
+    <h2 class="anim">Attention 的三种应用</h2>
+    <div class="card-grid cols-3 anim" style="margin-top:1em;position:relative;z-index:1">
+      <div class="card">
+        <div class="step-num" style="margin-bottom:.6em">01</div>
+        <h3>Encoder-Decoder Attention</h3>
+        <p class="sub" style="margin-top:.4em">Query 来自 Decoder 上一层，Key/Value 来自 Encoder 输出。Decoder 每个位置可关注输入序列的所有位置，模拟经典 Seq2Seq 注意力。</p>
+      </div>
+      <div class="card">
+        <div class="step-num" style="margin-bottom:.6em">02</div>
+        <h3>Encoder Self-Attention</h3>
+        <p class="sub" style="margin-top:.4em">Query、Key、Value 均来自 Encoder 上一层同一位置。Encoder 每个位置可 attending 到前一层的所有位置，实现全局上下文编码。</p>
+      </div>
+      <div class="card">
+        <div class="step-num" style="margin-bottom:.6em">03</div>
+        <h3>Decoder Masked Self-Attention</h3>
+        <p class="sub" style="margin-top:.4em">Decoder 每个位置只能 attending 到该位置及之前的所有位置。通过将非法连接置为 -inf 的 Mask 实现，保持自回归特性。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 9: Other Key Components ==================== -->
+  <div class="slide" data-index="8">
+    <h2 class="anim">其他关键组件</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em">
+      <div class="card">
+        <h3>Position-wise Feed-Forward Networks</h3>
+        <div class="formula">FFN(x) = max(0, xW<sub>1</sub> + b<sub>1</sub>)W<sub>2</sub> + b<sub>2</sub></div>
+        <p class="sub" style="margin-top:.4em">每层含两个线性变换与 ReLU 激活，d<sub>model</sub> = 512，内层维度 d<sub>ff</sub> = 2048。对不同位置使用相同参数，层间参数不同。</p>
+      </div>
+      <div class="card">
+        <h3>Embeddings & Softmax</h3>
+        <p class="sub">输入/输出 token 均通过可学习嵌入映射到 d<sub>model</sub> 维。解码器输出经线性变换 + softmax 预测下一 token。嵌入层与 pre-softmax 线性层<strong>共享权重</strong>，并乘以 sqrt(d<sub>model</sub>)。</p>
+      </div>
+    </div>
+    <div class="card anim" style="margin-top:1em">
+      <h3>Positional Encoding（位置编码）</h3>
+      <div class="card-grid cols-2" style="margin-top:.6em">
+        <div>
+          <div class="formula">PE<sub>(pos,2i)</sub> = sin(pos / 10000<sup>2i/d<sub>model</sub></sup>)</div>
+          <div class="formula">PE<sub>(pos,2i+1)</sub> = cos(pos / 10000<sup>2i/d<sub>model</sub></sup>)</div>
+        </div>
+        <div>
+          <ul class="bullet-list">
+            <li>模型不含循环与卷积，必须显式注入位置信息</li>
+            <li>正弦/余弦函数使模型能学习相对位置：PE<sub>pos+k</sub> 可表示为 PE<sub>pos</sub> 的线性函数</li>
+            <li>可外推到训练时未见过的更长序列</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 10: Why Self-Attention ==================== -->
+  <div class="slide" data-index="9">
+    <h2 class="anim">为什么选择 Self-Attention？</h2>
+    <div class="anim" style="margin-top:.8em">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Layer Type</th>
+            <th>Complexity per Layer</th>
+            <th>Sequential Operations</th>
+            <th>Maximum Path Length</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Self-Attention</strong></td>
+            <td class="best">O(n<sup>2</sup> d)</td>
+            <td class="best">O(1)</td>
+            <td class="best">O(1)</td>
+          </tr>
+          <tr>
+            <td>Recurrent</td>
+            <td>O(n d<sup>2</sup>)</td>
+            <td>O(n)</td>
+            <td>O(n)</td>
+          </tr>
+          <tr>
+            <td>Convolutional</td>
+            <td>O(k n d<sup>2</sup>)</td>
+            <td>O(1)</td>
+            <td>O(log<sub>k</sub>(n))</td>
+          </tr>
+          <tr>
+            <td>Self-Attention (restricted)</td>
+            <td>O(r n d)</td>
+            <td>O(1)</td>
+            <td>O(n / r)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="figure-caption" style="margin-top:.3em">Table 1: 复杂度、顺序操作数与最大路径长度对比（n=序列长度, d=表示维度, k=卷积核大小, r=邻域大小）</p>
+    </div>
+    <div class="card-grid cols-3 anim" style="margin-top:1em">
+      <div class="card key-finding">
+        <span class="kf-icon">1</span>
+        <div><strong>计算复杂度：</strong>当 n &lt; d 时（机器翻译常见情况），Self-Attention 比 RNN 更快</div>
+      </div>
+      <div class="card key-finding">
+        <span class="kf-icon">2</span>
+        <div><strong>可并行性：</strong>Self-Attention 仅需 O(1) 顺序操作，RNN 需要 O(n)</div>
+      </div>
+      <div class="card key-finding">
+        <span class="kf-icon">3</span>
+        <div><strong>路径长度：</strong>任意两位置间信号路径为 O(1)，显著利于学习长距离依赖</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 11: Training Setup ==================== -->
+  <div class="slide" data-index="10">
+    <h2 class="anim">实验设置</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em">
+      <div class="card">
+        <h3>数据集</h3>
+        <ul class="bullet-list">
+          <li><strong>WMT 2014 English-German</strong>：约 450 万句对，BPE 共享词表约 37K tokens</li>
+          <li><strong>WMT 2014 English-French</strong>：3600 万句，32K word-piece 词表</li>
+          <li>每批次约 25K source + 25K target tokens</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>硬件与训练时间</h3>
+        <ul class="bullet-list">
+          <li>单台 8 块 <strong>NVIDIA P100 GPU</strong></li>
+          <li>Base 模型：每步约 0.4s，共 100K 步（<strong>12 小时</strong>）</li>
+          <li>Big 模型：每步约 1.0s，共 300K 步（<strong>3.5 天</strong>）</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card-grid cols-2 anim" style="margin-top:1em">
+      <div class="card">
+        <h3>优化器</h3>
+        <p class="sub">Adam (beta1=0.9, beta2=0.98, eps=1e-9)，学习率随步数变化：</p>
+        <div class="formula">lrate = d<sub>model</sub><sup>-0.5</sup> * min(step<sup>-0.5</sup>, step * warmup<sup>-1.5</sup>)</div>
+        <p class="sub">warmup_steps = 4000</p>
+      </div>
+      <div class="card">
+        <h3>正则化</h3>
+        <ul class="bullet-list">
+          <li><strong>Residual Dropout</strong>：P<sub>drop</sub> = 0.1，应用于子层输出、嵌入与位置编码之和</li>
+          <li><strong>Label Smoothing</strong>：epsilon<sub>ls</sub> = 0.1，降低困惑度但提升 BLEU</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 12: Machine Translation Results ==================== -->
+  <div class="slide" data-index="11">
+    <h2 class="anim">实验结果：机器翻译</h2>
+    <div class="anim" style="margin-top:.8em">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th>EN-DE BLEU</th>
+            <th>EN-FR BLEU</th>
+            <th>EN-DE FLOPs</th>
+            <th>EN-FR FLOPs</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>ByteNet</td><td>23.75</td><td></td><td></td><td>1.0e20</td></tr>
+          <tr><td>GNMT + RL</td><td>24.6</td><td>39.92</td><td>2.3e19</td><td>1.4e20</td></tr>
+          <tr><td>ConvS2S</td><td>25.16</td><td>40.46</td><td>9.6e18</td><td>1.5e20</td></tr>
+          <tr><td>GNMT + RL Ensemble</td><td>26.30</td><td>41.16</td><td>1.8e20</td><td>1.1e21</td></tr>
+          <tr><td>ConvS2S Ensemble</td><td>26.36</td><td>41.29</td><td>7.7e19</td><td>1.2e21</td></tr>
+          <tr><td><strong>Transformer (base)</strong></td><td>27.3</td><td>38.1</td><td class="best">3.3e18</td><td></td></tr>
+          <tr><td><strong>Transformer (big)</strong></td><td class="best">28.4</td><td class="best">41.8</td><td>2.3e19</td><td></td></tr>
+        </tbody>
+      </table>
+      <p class="figure-caption" style="margin-top:.3em">Table 2: Transformer 在 WMT 2014 newstest2014 上的 BLEU 与训练成本对比</p>
+    </div>
+    <div class="card-grid cols-3 anim" style="margin-top:1em">
+      <div class="card metric">
+        <div class="value">28.4</div>
+        <div class="label">EN-DE BLEU</div>
+        <div class="delta">超越所有已有模型与集成</div>
+      </div>
+      <div class="card metric">
+        <div class="value">41.8</div>
+        <div class="label">EN-FR BLEU</div>
+        <div class="delta">单模型新 SOTA</div>
+      </div>
+      <div class="card metric">
+        <div class="value">&lt;1/4</div>
+        <div class="label">训练成本</div>
+        <div class="delta">仅为先前 SOTA 的零头</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 13: Model Variations (Ablation) ==================== -->
+  <div class="slide" data-index="12">
+    <h2 class="anim">消融实验：模型变体</h2>
+    <div class="anim" style="margin-top:.8em">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Variant</th>
+            <th>N</th>
+            <th>d<sub>model</sub></th>
+            <th>d<sub>ff</sub></th>
+            <th>h</th>
+            <th>d<sub>k</sub></th>
+            <th>P<sub>drop</sub></th>
+            <th>BLEU (dev)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td class="best">base</td><td>6</td><td>512</td><td>2048</td><td>8</td><td>64</td><td>0.1</td><td class="best">25.8</td></tr>
+          <tr><td>(A) single head</td><td></td><td></td><td></td><td>1</td><td>512</td><td></td><td>24.9</td></tr>
+          <tr><td>(A) 16 heads</td><td></td><td></td><td></td><td>16</td><td>32</td><td></td><td>25.4</td></tr>
+          <tr><td>(B) d<sub>k</sub>=32</td><td></td><td></td><td></td><td></td><td>32</td><td></td><td>25.1</td></tr>
+          <tr><td>(C) big model</td><td></td><td>1024</td><td>4096</td><td>16</td><td>64</td><td>0.3</td><td>26.4</td></tr>
+          <tr><td>(D) dropout=0.0</td><td></td><td></td><td></td><td></td><td></td><td>0.0</td><td>24.6</td></tr>
+          <tr><td>(E) learned PE</td><td></td><td></td><td></td><td></td><td></td><td></td><td>25.7</td></tr>
+        </tbody>
+      </table>
+      <p class="figure-caption" style="margin-top:.3em">Table 3: Transformer 架构变体在 newstest2013 开发集上的表现</p>
+    </div>
+    <div class="card-grid cols-2 anim" style="margin-top:1em">
+      <div class="card">
+        <h3>关键发现</h3>
+        <ul class="bullet-list">
+          <li>单头注意力比最优设置低 <strong>0.9 BLEU</strong>，头数过多也会下降</li>
+          <li>减小 attention key 维度 d<sub>k</sub> 损害质量，说明兼容性判断并不简单</li>
+          <li>更大的模型更好，dropout 对防止过拟合非常关键</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>位置编码</h3>
+        <div class="highlight-bar">
+          正弦位置编码与可学习位置嵌入效果几乎相同（25.8 vs 25.7）。选择正弦版本是因为它可能允许模型外推到训练时未见过的更长序列。
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Slide 14: Conclusion ==================== -->
+  <div class="slide" data-index="13">
+    <div class="glow glow-blue" style="width:350px;height:350px;top:-80px;left:-60px"></div>
+    <h2 class="anim">总结与展望</h2>
+    <div class="card-grid cols-2 anim" style="margin-top:1em;position:relative;z-index:1">
+      <div class="card">
+        <h3>核心贡献</h3>
+        <ul class="bullet-list">
+          <li>提出 <strong style="color:var(--emphasis)">Transformer</strong>：首个完全基于注意力的序列转导模型</li>
+          <li>用 <strong>多头自注意力</strong> 替代编码器-解码器架构中的循环层</li>
+          <li>训练速度显著快于 RNN/CNN 架构，翻译质量达到新 SOTA</li>
+          <li>在英语成分句法分析任务上也展现出良好的泛化能力</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>局限与未来方向</h3>
+        <ul class="bullet-list">
+          <li>Self-Attention 的复杂度为 <strong>O(n<sup>2</sup>)</strong>，对极长序列仍有挑战</li>
+          <li>计划探索 <strong>局部、受限注意力机制</strong> 以高效处理图像、音频、视频等大输入/输出</li>
+          <li>使生成过程更少序列化是未来的研究目标之一</li>
+          <li>将 Transformer 扩展到文本以外的模态</li>
+        </ul>
+      </div>
+    </div>
+    <div class="highlight-bar anim" style="margin-top:1em">
+      代码开源：<strong>https://github.com/tensorflow/tensor2tensor</strong> —— 这一工作奠定了 GPT、BERT 等后续模型的基础架构
+    </div>
+  </div>
+
+  <!-- ==================== Slide 15: End ==================== -->
+  <div class="slide" data-index="14">
+    <div class="glow glow-purple" style="width:400px;height:400px;top:50%;left:50%;transform:translate(-50%,-50%)"></div>
+    <div class="cover-center" style="position:relative;z-index:1">
+      <h1 class="anim" style="font-size:clamp(2rem,4vw,3rem)">感谢观看</h1>
+      <p class="subtitle anim" style="margin-top:.8em">Attention Is All You Need</p>
+      <div class="cover-tags anim" style="margin-top:1.5em">
+        <span class="cover-tag">NIPS 2017</span>
+        <span class="cover-tag">arXiv:1706.03762</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /slides -->
+
+<!-- Controls -->
+<div class="controls">
+  <button id="prevBtn">&#8249;</button>
+  <span class="page-counter" id="pageCounter">01 / 15</span>
+  <button id="nextBtn">&#8250;</button>
+</div>
+
+<!-- Dots -->
+<div class="dots" id="dotsContainer"></div>
+
+<script>
+(function(){
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const counter = document.getElementById('pageCounter');
+  const progressBar = document.getElementById('progressBar');
+  const dotsContainer = document.getElementById('dotsContainer');
+
+  // Build dots
+  for(let i=0;i<total;i++){
+    const d=document.createElement('div');
+    d.className='dot'+(i===0?' active':'');
+    d.addEventListener('click',()=>goTo(i));
+    dotsContainer.appendChild(d);
+  }
+  const dots=dotsContainer.querySelectorAll('.dot');
+
+  function pad(n){return String(n).padStart(2,'0');}
+
+  function goTo(idx){
+    if(idx<0||idx>=total||idx===current)return;
+    const prev=slides[current];
+    const next=slides[idx];
+
+    prev.classList.remove('active');
+    prev.classList.add('exit-up');
+
+    requestAnimationFrame(()=>{
+      next.classList.remove('exit-up');
+      next.classList.add('active');
+    });
+
+    setTimeout(()=>{
+      prev.classList.remove('exit-up');
+    },700);
+
+    dots[current].classList.remove('active');
+    current=idx;
+    dots[current].classList.add('active');
+    counter.textContent=pad(current+1)+' / '+pad(total);
+    progressBar.style.width=((current+1)/total*100)+'%';
+    prevBtn.disabled=current===0;
+    nextBtn.disabled=current===total-1;
+  }
+
+  function next(){goTo(current+1);}
+  function prev(){goTo(current-1);}
+
+  progressBar.style.width=(1/total*100)+'%';
+  prevBtn.disabled=true;
+
+  prevBtn.addEventListener('click',prev);
+  nextBtn.addEventListener('click',next);
+
+  document.addEventListener('keydown',(e)=>{
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '){e.preventDefault();next();}
+    if(e.key==='ArrowLeft'||e.key==='ArrowUp'){e.preventDefault();prev();}
+    if(e.key==='Home'){e.preventDefault();goTo(0);}
+    if(e.key==='End'){e.preventDefault();goTo(total-1);}
+  });
+
+  let touchX=0,touchY=0;
+  document.addEventListener('touchstart',(e)=>{
+    touchX=e.changedTouches[0].screenX;
+    touchY=e.changedTouches[0].screenY;
+  },{passive:true});
+  document.addEventListener('touchend',(e)=>{
+    const dx=e.changedTouches[0].screenX-touchX;
+    const dy=e.changedTouches[0].screenY-touchY;
+    if(Math.abs(dx)>Math.abs(dy)&&Math.abs(dx)>50){
+      dx<0?next():prev();
+    }
+  },{passive:true});
+})();
+</script>
+
+</body>
+</html>

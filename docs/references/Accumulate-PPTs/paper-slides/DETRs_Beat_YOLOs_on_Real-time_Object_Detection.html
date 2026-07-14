@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DETRs Beat YOLOs on Real-time Object Detection</title>
+<link rel="icon" type="image/png" href="../assets/favicon.png">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #ffffff;
+  --text: #000000;
+  --title: #3966A2;
+  --accent: #132843;
+  --dim: #6191D3;
+  --card-bg: rgba(57,102,162,0.06);
+  --card-border: rgba(57,102,162,0.12);
+  --dark-card: #f5f7fa;
+  --border: #e2e8f0;
+  --radius: 16px;
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', 'Noto Sans SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  height: 100vh;
+  cursor: default;
+  user-select: none;
+}
+
+/* SLIDE ENGINE */
+.deck {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 5vh 7vw;
+  background: var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(60px) scale(0.97);
+  transition: opacity 0.6s cubic-bezier(.4,0,.2,1),
+              transform 0.6s cubic-bezier(.4,0,.2,1),
+              visibility 0.6s;
+  will-change: opacity, transform;
+}
+
+.slide.active {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: translateY(0) scale(1) !important;
+}
+
+.slide.exit-up {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-60px) scale(0.97);
+}
+
+/* CONTROLS */
+.controls {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  z-index: 100;
+  background: rgba(255,255,255,0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  padding: 8px 20px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+}
+
+.controls button {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 18px;
+  cursor: pointer;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition: background 0.2s, color 0.2s;
+}
+.controls button:hover { background: rgba(57,102,162,0.1); color: var(--title); }
+.controls button:disabled { opacity: 0.25; cursor: default; }
+.controls button:disabled:hover { background: none; }
+
+.controls .counter {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dim);
+  min-width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+
+/* Progress Bar */
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--title), var(--accent));
+  z-index: 100;
+  transition: width 0.5s cubic-bezier(.4,0,.2,1);
+  border-radius: 0 1px 1px 0;
+}
+
+/* Slide Dots */
+.dots {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ccc;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.3s;
+}
+.dot.active {
+  background: var(--title);
+  transform: scale(1.6);
+}
+.dot:hover { background: #999; }
+
+.hint {
+  position: fixed;
+  bottom: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: #999;
+  z-index: 90;
+  opacity: 1;
+  transition: opacity 1s;
+  pointer-events: none;
+}
+.hint.hidden { opacity: 0; }
+
+/* TYPOGRAPHY */
+.slide-label {
+  font-size: clamp(11px, 1.1vw, 14px);
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 12px;
+}
+
+h1 {
+  font-size: clamp(32px, 4.5vw, 58px);
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text);
+  letter-spacing: -1.5px;
+}
+h1 .highlight { color: var(--title); }
+h1 .accent { color: var(--accent); }
+
+h2 {
+  font-size: clamp(26px, 3.2vw, 44px);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--title);
+  letter-spacing: -1px;
+}
+
+h3 {
+  font-size: clamp(16px, 1.7vw, 24px);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  font-size: clamp(16px, 1.7vw, 22px);
+  font-weight: 400;
+  color: #555;
+  line-height: 1.55;
+  margin-top: 16px;
+  max-width: 720px;
+}
+
+.body-text {
+  font-size: clamp(15px, 1.5vw, 20px);
+  font-weight: 400;
+  color: #444;
+  line-height: 1.65;
+}
+
+.small-text {
+  font-size: clamp(12px, 1.1vw, 15px);
+  color: #888;
+  line-height: 1.5;
+}
+
+/* COMPONENTS */
+.divider {
+  width: 48px;
+  height: 3px;
+  background: var(--title);
+  border-radius: 2px;
+  margin: 16px 0;
+}
+.divider-accent { background: var(--accent); }
+
+/* Badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(57,102,162,0.10);
+  border: 1px solid rgba(57,102,162,0.18);
+  border-radius: 100px;
+  padding: 8px 16px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+  margin-bottom: 40px;
+  text-transform: uppercase;
+  width: fit-content;
+}
+.badge .dot-yellow {
+  width: 7px; height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.badge .dot-gray {
+  width: 4px; height: 4px;
+  background: rgba(57,102,162,0.3);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Cards */
+.card-grid {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  flex: 0;
+}
+.card-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.card-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+.card {
+  background: var(--dark-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: clamp(18px, 2.2vw, 32px);
+  display: flex;
+  flex-direction: column;
+}
+.card .card-num {
+  font-size: clamp(32px, 3.5vw, 48px);
+  font-weight: 800;
+  color: var(--title);
+  opacity: 0.3;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.card h3 { font-size: clamp(15px, 1.6vw, 22px); margin-bottom: 8px; }
+.card .body-text { font-size: clamp(13px, 1.3vw, 17px); }
+
+/* Quote Block */
+.quote-block {
+  border-left: 3px solid var(--accent);
+  padding: 16px 24px;
+  background: rgba(57,102,162,0.04);
+  border-radius: 0 12px 12px 0;
+  margin: 16px 0;
+}
+.quote-block p {
+  font-size: clamp(15px, 1.5vw, 20px);
+  font-weight: 500;
+  color: var(--accent);
+  line-height: 1.6;
+  font-style: italic;
+}
+
+/* VS Dialog */
+.vs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  margin-top: 16px;
+}
+.vs-col {
+  flex: 1;
+  border-radius: 18px;
+  padding: clamp(16px, 1.8vw, 24px);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.vs-col.left-col {
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+}
+.vs-col.right-col {
+  background: linear-gradient(135deg, rgba(57,102,162,0.08), rgba(57,102,162,0.02));
+  border: 1px solid rgba(57,102,162,0.25);
+}
+.vs-col .vs-tag {
+  display: inline-block;
+  font-size: clamp(10px, 0.9vw, 12px);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  width: fit-content;
+}
+.vs-col.left-col .vs-tag {
+  background: rgba(0,0,0,0.06);
+  color: #666;
+}
+.vs-col.right-col .vs-tag {
+  background: rgba(57,102,162,0.12);
+  color: var(--title);
+}
+.vs-col .vs-icon { font-size: clamp(24px, 2.8vw, 36px); margin-bottom: 6px; }
+.vs-col h3 { font-size: clamp(16px, 1.6vw, 22px); margin-bottom: 10px; }
+.vs-col ul { list-style: none; padding: 0; }
+.vs-col ul li {
+  font-size: clamp(13px, 1.2vw, 16px);
+  color: #555;
+  line-height: 1.55;
+  padding: 3px 0 3px 22px;
+  position: relative;
+}
+.vs-col ul li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.vs-col.left-col ul li::before { background: #aaa; }
+.vs-col.right-col ul li::before { background: var(--title); }
+
+/* Steps */
+.steps {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  align-items: stretch;
+}
+.step {
+  flex: 1;
+  background: var(--dark-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: clamp(16px, 2vw, 28px) clamp(12px, 1.5vw, 24px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.step .step-num {
+  font-size: clamp(10px, 0.9vw, 14px);
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+.step .step-icon { font-size: clamp(22px, 2.5vw, 32px); margin-bottom: 8px; }
+.step h3 { font-size: clamp(14px, 1.3vw, 18px); margin-bottom: 4px; }
+.step-arrow {
+  display: flex;
+  align-items: center;
+  font-size: 18px;
+  color: #ccc;
+}
+
+/* Prompt Box */
+.prompt-box {
+  background: #fafbfc;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: clamp(16px, 2vw, 24px) clamp(18px, 2.2vw, 28px);
+  margin-top: 16px;
+}
+.prompt-box .prompt-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.prompt-box p {
+  font-size: clamp(14px, 1.4vw, 18px);
+  color: #555;
+  line-height: 1.65;
+}
+.prompt-box p em {
+  color: var(--accent);
+  font-style: normal;
+  font-weight: 500;
+}
+
+/* Highlight Bar */
+.highlight-bar {
+  background: linear-gradient(135deg, rgba(57,102,162,0.08), rgba(57,102,162,0.02));
+  border: 1px solid rgba(57,102,162,0.15);
+  border-radius: 12px;
+  padding: clamp(14px, 1.8vw, 22px) clamp(18px, 2.2vw, 28px);
+  margin-top: 14px;
+}
+.highlight-bar p {
+  font-size: clamp(15px, 1.5vw, 19px);
+  color: var(--text);
+  line-height: 1.6;
+}
+.highlight-bar .accent-word {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Bullet List */
+.bullet-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 12px;
+}
+.bullet-list li {
+  font-size: clamp(14px, 1.4vw, 19px);
+  color: #555;
+  line-height: 1.7;
+  padding: 4px 0 4px 22px;
+  position: relative;
+}
+.bullet-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--title);
+}
+.bullet-list li .em {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Glow */
+.glow {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.12;
+  pointer-events: none;
+}
+.glow-purple { background: var(--title); }
+.glow-yellow { background: var(--dim); }
+
+/* Cover Meta */
+.cover-meta {
+  margin-top: 32px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cover-tag {
+  font-size: clamp(11px, 1vw, 14px);
+  font-weight: 500;
+  color: var(--dim);
+  background: var(--dark-card);
+  border: 1px solid var(--border);
+  padding: 5px 14px;
+  border-radius: 100px;
+}
+
+/* Icon Row */
+.icon-row {
+  display: flex;
+  gap: 24px;
+  margin-top: 14px;
+}
+.icon-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: clamp(13px, 1.2vw, 17px);
+  color: #555;
+}
+.icon-item span:first-child { font-size: clamp(18px, 2vw, 24px); }
+
+/* Big Num */
+.big-num {
+  font-size: 120px;
+  font-weight: 900;
+  color: var(--title);
+  opacity: 0.12;
+  position: absolute;
+  top: 40px;
+  right: 60px;
+  line-height: 1;
+}
+
+/* End Card */
+.end-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.end-card h2 {
+  font-size: clamp(30px, 3.5vw, 50px);
+  margin-bottom: 12px;
+}
+
+/* IPO Flow */
+.ipo-flow {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  margin-top: 32px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.ipo-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  min-width: 140px;
+}
+.ipo-circle {
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  font-weight: 800;
+  border: 2px solid;
+}
+.ipo-circle.i { border-color: var(--title); color: var(--title); background: rgba(57,102,162,0.08); }
+.ipo-circle.p { border-color: var(--accent); color: var(--accent); background: rgba(19,40,67,0.06); }
+.ipo-circle.o { border-color: #2d8a5e; color: #2d8a5e; background: rgba(45,138,94,0.06); }
+.ipo-label {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+.ipo-desc {
+  font-size: 13px;
+  color: #888;
+  text-align: center;
+  max-width: 140px;
+}
+.ipo-arrow {
+  font-size: 24px;
+  color: #ccc;
+}
+
+/* Image container */
+.img-container {
+  margin-top: 20px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: #fafbfc;
+}
+.img-container img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.img-caption {
+  font-size: 12px;
+  color: #888;
+  text-align: center;
+  padding: 8px;
+  background: #f5f7fa;
+}
+
+/* Table */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  font-size: clamp(13px, 1.2vw, 16px);
+}
+.data-table th, .data-table td {
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+.data-table th {
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--dark-card);
+}
+.data-table td { color: #555; }
+.data-table tr:hover td { background: rgba(57,102,162,0.03); }
+.data-table .best { color: #2d8a5e; font-weight: 600; }
+
+/* ANIMATIONS */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.slide.active .anim { animation: fadeUp 0.5s ease both; }
+.slide.active .anim:nth-child(1) { animation-delay: 0.08s; }
+.slide.active .anim:nth-child(2) { animation-delay: 0.16s; }
+.slide.active .anim:nth-child(3) { animation-delay: 0.24s; }
+.slide.active .anim:nth-child(4) { animation-delay: 0.32s; }
+.slide.active .anim:nth-child(5) { animation-delay: 0.40s; }
+.slide.active .anim:nth-child(6) { animation-delay: 0.48s; }
+
+/* RESPONSIVE */
+@media (max-width: 900px) {
+  .slide { padding: 4vh 5vw; }
+  .card-grid.cols-2, .card-grid.cols-3 { grid-template-columns: 1fr; }
+  .vs-row { flex-direction: column; gap: 12px; }
+  .steps { flex-direction: column; }
+  .dots { display: none; }
+  .ipo-flow { flex-direction: column; }
+  .ipo-arrow { transform: rotate(90deg); }
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="dots" id="dots"></div>
+<div class="hint" id="hint">← → 或点击翻页</div>
+
+<div class="deck" id="deck">
+
+<!-- ==================== SLIDE 1: 封面 ==================== -->
+<section class="slide">
+  <div class="glow glow-purple" style="top:-100px;left:-100px;"></div>
+  <div class="glow glow-yellow" style="bottom:-100px;right:-100px;"></div>
+  <div class="anim badge">
+    <span class="dot-yellow"></span>
+    CVPR 2024
+    <span class="dot-gray"></span>
+    Oral
+  </div>
+  <div class="anim" style="font-size: clamp(2.2rem, 4.5vw, 3.6rem); font-weight: 900; line-height: 1.15;">
+    <span class="highlight">DETRs Beat YOLOs</span><br>
+    <span style="color:var(--text);">on Real-time Object Detection</span>
+  </div>
+  <p class="anim subtitle">RT-DETR: 首个实时端到端目标检测器，在速度和精度上同时超越YOLO系列</p>
+  <div class="anim cover-meta">
+    <span class="cover-tag">Yian Zhao, Wenyu Lv, Shangliang Xu, et al.</span>
+    <span class="cover-tag">Baidu Inc.</span>
+    <span class="cover-tag">CVPR 2024</span>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 2: 摘要 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Abstract</div>
+  <div class="anim"><h2>论文摘要</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim quote-block">
+    <p>"本文提出了 RT-DETR，首个实时端到端目标检测器，在速度和精度上同时超越了所有YOLO检测器。"</p>
+  </div>
+  <div class="anim" style="margin-top:20px;">
+    <ul class="bullet-list">
+      <li>现有DETR模型因<span class="em">多尺度特征交互计算量大</span>，难以满足实时性需求</li>
+      <li>提出<span class="em">高效混合编码器</span>，解耦尺度内交互和跨尺度融合</li>
+      <li>设计<span class="em">不确定性最小查询选择</span>，为解码器提供高质量初始查询</li>
+      <li>RT-DETR-R50 在 COCO val2017 上达到 <span class="em">53.1% AP</span>，T4 GPU上 <span class="em">108 FPS</span></li>
+      <li>支持<span class="em">灵活的速度-精度权衡</span>，无需重新训练即可调整推理速度</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 3: 研究背景 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Background</div>
+  <div class="anim"><h2>研究背景与动机</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim vs-row">
+    <div class="vs-col left-col">
+      <span class="vs-tag">YOLO系列</span>
+      <h3>实时检测主流方案</h3>
+      <ul>
+        <li>基于CNN的 anchor-based / anchor-free 检测器</li>
+        <li>YOLOv5, YOLOv7, YOLOv8 等迭代演进</li>
+        <li>速度快但存在<span style="color:var(--accent);font-weight:600;">NMS后处理瓶颈</span></li>
+        <li>手工设计组件多，部署复杂</li>
+      </ul>
+    </div>
+    <div class="vs-col right-col">
+      <span class="vs-tag">DETR系列</span>
+      <h3 style="color:var(--title);">端到端检测新范式</h3>
+      <ul>
+        <li>基于Transformer的端到端检测</li>
+        <li>去除NMS，简化推理流程</li>
+        <li>但<span style="color:var(--accent);font-weight:600;">计算量大，速度远慢于YOLO</span></li>
+        <li>多尺度特征交互是主要瓶颈</li>
+      </ul>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:20px;">
+    <p><span class="accent-word">核心问题：</span>能否设计一个DETR架构，既保持端到端优势，又达到YOLO级别的实时速度？</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 4: NMS瓶颈分析 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Analysis</div>
+  <div class="anim"><h2>NMS后处理：YOLO的隐藏瓶颈</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="display:flex; gap:28px; align-items:flex-start; margin-top:8px;">
+    <div style="flex:1.1; min-width:0;">
+      <div class="img-container" style="margin-top:0;">
+        <img src="DETRs_Beat_YOLOs_on_Real-time_Object_Detection/crop_003_page003_reg1.png" alt="NMS瓶颈分析" style="max-height:48vh; object-fit:contain;">
+        <div class="img-caption">不同置信度阈值下YOLOv5和YOLOv8产生的检测框数量对比</div>
+      </div>
+    </div>
+    <div style="flex:0.9; display:flex; flex-direction:column; gap:14px;">
+      <div class="card" style="margin-top:0;">
+        <span class="card-num">01</span>
+        <h3>Anchor-based 检测器</h3>
+        <p class="body-text">YOLOv5等模型产生大量冗余检测框，NMS需要按置信度排序并逐一比较IoU，计算复杂度高。</p>
+      </div>
+      <div class="card">
+        <span class="card-num">02</span>
+        <h3>Anchor-free 检测器</h3>
+        <p class="body-text">YOLOv8等虽减少冗余，但仍需NMS过滤重叠框，且对超参数敏感，影响端到端延迟。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 5: 方法总览 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Method Overview</div>
+  <div class="anim"><h2>RT-DETR 架构总览</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim img-container" style="margin-top:8px; max-height:46vh; display:flex; align-items:center; justify-content:center;">
+    <img src="DETRs_Beat_YOLOs_on_Real-time_Object_Detection/crop_005_page005_reg1.png" alt="RT-DETR架构" style="max-height:42vh; width:auto; object-fit:contain;">
+  </div>
+  <div class="img-caption" style="margin-top:4px;">RT-DETR 整体架构：Backbone → Efficient Hybrid Encoder → Uncertainty-minimal Query Selection → Decoder & Head</div>
+  <div class="anim ipo-flow" style="margin-top:16px;">
+    <div class="ipo-step">
+      <div class="ipo-circle i">B</div>
+      <div class="ipo-label">Backbone</div>
+      <div class="ipo-desc">ResNet / HGNet<br>提取多尺度特征</div>
+    </div>
+    <div class="ipo-arrow">→</div>
+    <div class="ipo-step">
+      <div class="ipo-circle p">E</div>
+      <div class="ipo-label">Encoder</div>
+      <div class="ipo-desc">高效混合编码器<br>AIFI + CCFF</div>
+    </div>
+    <div class="ipo-arrow">→</div>
+    <div class="ipo-step">
+      <div class="ipo-circle o">D</div>
+      <div class="ipo-label">Decoder</div>
+      <div class="ipo-desc">Transformer Decoder<br>端到端预测</div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 6: 高效混合编码器 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Encoder Design</div>
+  <div class="anim"><h2>高效混合编码器设计</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="margin-bottom:16px;">
+    <p class="body-text">核心洞察：<span style="color:var(--accent);font-weight:600;">尺度内交互与跨尺度融合的计算冗余不同</span>，应解耦处理。</p>
+  </div>
+  <div class="anim card-grid cols-2">
+    <div class="card">
+      <span class="card-num">AIFI</span>
+      <h3>尺度内特征交互</h3>
+      <p class="body-text">基于单尺度自注意力（AIFI），仅在最高分辨率特征图上执行，捕获尺度内语义关联，避免多尺度冗余计算。</p>
+    </div>
+    <div class="card">
+      <span class="card-num">CCFF</span>
+      <h3>跨尺度特征融合</h3>
+      <p class="body-text">基于跨尺度特征融合模块（CCFF），通过高效的双向融合路径聚合多尺度信息，减少计算量。</p>
+    </div>
+  </div>
+  <div class="anim img-container" style="margin-top:16px; max-height:32vh; display:flex; align-items:center; justify-content:center;">
+    <img src="DETRs_Beat_YOLOs_on_Real-time_Object_Detection/crop_004_page004_reg1.png" alt="编码器演进" style="max-height:28vh; width:auto; object-fit:contain;">
+  </div>
+  <div class="img-caption" style="margin-top:4px;">编码器设计演进：从简单Concat到解耦的AIFI+CCFF架构</div>
+</section>
+
+<!-- ==================== SLIDE 7: CCFF模块细节 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Module Detail</div>
+  <div class="anim"><h2>跨尺度特征融合 (CCFF)</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="max-width:700px;">
+    <p class="body-text">CCFF模块采用<span style="color:var(--accent);font-weight:600;">RepBlock</span>作为基本构建单元，结合1x1卷积和残差连接，实现高效的跨尺度信息流动。</p>
+  </div>
+  <div class="anim img-container" style="margin-top:20px; max-width:650px;">
+    <img src="DETRs_Beat_YOLOs_on_Real-time_Object_Detection/crop_006_page005_reg2.png" alt="CCFF模块">
+    <div class="img-caption">CCFF模块结构：Concat → 1x1 Conv → RepBlock(N×) → Element-wise add → Flatten</div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:20px;">
+    <p><span class="accent-word">关键设计：</span>通过1x1卷积对齐通道维度，RepBlock实现可重参数化的高效特征变换，融合后通过Element-wise add聚合信息。</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 8: 不确定性最小查询选择 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Query Selection</div>
+  <div class="anim"><h2>不确定性最小查询选择</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="margin-bottom:12px;">
+    <p class="body-text">传统DETR的查询选择仅考虑分类分数，忽略了定位质量，导致<span style="color:var(--accent);font-weight:600;">高分类分数但低IoU</span>的查询被选入解码器。</p>
+  </div>
+  <div class="anim" style="display:flex; gap:28px; align-items:flex-start;">
+    <div style="flex:1; min-width:0;">
+      <div class="img-container" style="margin-top:0;">
+        <img src="DETRs_Beat_YOLOs_on_Real-time_Object_Detection/crop_007_page006_reg1.png" alt="查询选择对比" style="max-height:46vh; object-fit:contain;">
+        <div class="img-caption">不确定性最小查询选择 vs 传统方法：查询在IoU-分类分数空间中的分布</div>
+      </div>
+    </div>
+    <div style="flex:0.85; display:flex; flex-direction:column; gap:14px;">
+      <div class="card" style="margin-top:0;">
+        <span class="card-num" style="font-size:28px;">Vanilla</span>
+        <h3>传统查询选择</h3>
+        <p class="body-text">仅按分类置信度选择Top-K查询，分类分数高但定位不准确的查询会误导解码器。</p>
+      </div>
+      <div class="card">
+        <span class="card-num" style="font-size:28px;">Ours</span>
+        <h3>不确定性最小选择</h3>
+        <p class="body-text">同时考虑分类分数和IoU分数，选择<span style="color:var(--accent);font-weight:600;">不确定性最小</span>的查询，提供更高质量的初始查询。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 9: 实验设置 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Experiments</div>
+  <div class="anim"><h2>实验设置</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim card-grid cols-3">
+    <div class="card">
+      <span class="card-num">01</span>
+      <h3>数据集</h3>
+      <p class="body-text">MS COCO train2017 (118K图像) 训练<br>COCO val2017 (5K图像) 评估</p>
+    </div>
+    <div class="card">
+      <span class="card-num">02</span>
+      <h3>训练配置</h3>
+      <p class="body-text">AdamW优化器，Batch Size 32<br>训练6x schedule (72 epochs)</p>
+    </div>
+    <div class="card">
+      <span class="card-num">03</span>
+      <h3>评测指标</h3>
+      <p class="body-text">COCO AP (平均精度)<br>端到端延迟 (TensorRT FP16, T4 GPU)</p>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:24px;">
+    <p><span class="accent-word">公平对比：</span>所有模型均在相同硬件和TensorRT FP16环境下测试端到端延迟，包括前处理和后处理时间。</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 10: 主实验结果 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Results</div>
+  <div class="anim"><h2>主实验结果：与SOTA对比</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="display:flex; gap:24px; align-items:stretch; margin-top:8px; height:calc(100% - 120px);">
+    <div style="flex:1.2; min-width:0; display:flex; flex-direction:column; justify-content:center;">
+      <div class="img-container" style="margin-top:0; flex:1; display:flex; flex-direction:column; justify-content:center;">
+        <img src="DETRs_Beat_YOLOs_on_Real-time_Object_Detection/result.png" alt="完整实验结果对比" style="max-height:90%; width:100%; object-fit:contain;">
+        <div class="img-caption">Table 2. RT-DETR与实时检测器(YOLO系列)和端到端检测器(DETR系列)的全面对比</div>
+      </div>
+    </div>
+    <div style="flex:0.8; display:flex; flex-direction:column; gap:10px; justify-content:center;">
+      <div class="card" style="margin-top:0;">
+        <span class="card-num">01</span>
+        <h3>超越所有YOLO检测器</h3>
+        <p class="body-text">RT-DETR-R50在COCO val2017上达到<span style="color:var(--accent);font-weight:600;">53.1% AP</span>，同时保持<span style="color:var(--accent);font-weight:600;">108 FPS</span>的实时速度，精度超越YOLOv8-X (53.9% AP需71ms延迟)。</p>
+      </div>
+      <div class="card">
+        <span class="card-num">02</span>
+        <h3>速度精度双优的端到端检测器</h3>
+        <p class="body-text">相比DINO-Deformable-DETR (49.0% AP, ~20 FPS)，RT-DETR-R50在精度提升4.1%的同时，速度提升<span style="color:var(--accent);font-weight:600;">5倍以上</span>。</p>
+      </div>
+      <div class="card">
+        <span class="card-num">03</span>
+        <h3>灵活的速度-精度权衡</h3>
+        <p class="body-text">RT-DETR-R101达到<span style="color:var(--accent);font-weight:600;">54.3% AP</span> (74 FPS)，通过调整解码器层数可在不重新训练的情况下灵活调整推理速度。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 11: 与DETR对比 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Comparison</div>
+  <div class="anim"><h2>与现有DETR模型对比</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="margin-bottom:16px;">
+    <p class="body-text">RT-DETR不仅在速度上远超现有DETR模型，在精度上也达到了SOTA水平。</p>
+  </div>
+  <div class="anim card-grid cols-2">
+    <div class="card">
+      <span class="card-num">vs</span>
+      <h3>DINO-Deformable-DETR</h3>
+      <p class="body-text">RT-DETR-R50 (53.1% AP, 108 FPS) vs DINO-R50 (49.0% AP, ~20 FPS)<br><span style="color:var(--accent);font-weight:600;">精度+4.1%，速度提升5倍以上</span></p>
+    </div>
+    <div class="card">
+      <span class="card-num">vs</span>
+      <h3>Deformable-DETR</h3>
+      <p class="body-text">RT-DETR-R50 vs Deformable-DETR-R50 (46.2% AP)<br><span style="color:var(--accent);font-weight:600;">精度+6.9%，速度提升10倍以上</span></p>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:24px;">
+    <p><span class="accent-word">核心优势：</span>RT-DETR是首个将DETR的端到端优势与YOLO级别实时性相结合的检测器，填补了该领域的空白。</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 12: 消融实验 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Ablation</div>
+  <div class="anim"><h2>消融实验：验证各组件贡献</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="margin-bottom:16px;">
+    <p class="body-text">在RT-DETR-R50上逐一验证高效混合编码器和不确定性最小查询选择的贡献。</p>
+  </div>
+  <div class="anim steps">
+    <div class="step">
+      <span class="step-num">Baseline</span>
+      <span class="step-icon">📊</span>
+      <h3>Deformable-DETR</h3>
+      <p class="small-text">46.2% AP<br>多尺度编码器</p>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <span class="step-num">+ AIFI</span>
+      <span class="step-icon">⚡</span>
+      <h3>尺度内交互</h3>
+      <p class="small-text">+1.8% AP<br>减少冗余计算</p>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <span class="step-num">+ CCFF</span>
+      <span class="step-icon">🔗</span>
+      <h3>跨尺度融合</h3>
+      <p class="small-text">+0.5% AP<br>高效信息流动</p>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <span class="step-num">+ UMQS</span>
+      <span class="step-icon">🎯</span>
+      <h3>查询选择</h3>
+      <p class="small-text">+0.4% AP<br>高质量初始查询</p>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:24px;">
+    <p><span class="accent-word">结论：</span>每个组件均带来稳定的精度提升，组合后达到53.1% AP，同时保持实时速度。</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 13: 灵活推理速度调整 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Advantage</div>
+  <div class="anim"><h2>灵活的速度-精度权衡</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="margin-bottom:16px;">
+    <p class="body-text">RT-DETR支持<span style="color:var(--accent);font-weight:600;">无需重新训练</span>的推理速度调整，通过改变解码器层数即可灵活控制速度。</p>
+  </div>
+  <div class="anim card-grid cols-3">
+    <div class="card">
+      <span class="card-num">R18</span>
+      <h3>RT-DETR-R18</h3>
+      <p class="body-text">46.5% AP<br>217 FPS<br>超轻量级场景</p>
+    </div>
+    <div class="card">
+      <span class="card-num">R50</span>
+      <h3>RT-DETR-R50</h3>
+      <p class="body-text">53.1% AP<br>108 FPS<br>均衡性能</p>
+    </div>
+    <div class="card">
+      <span class="card-num">R101</span>
+      <h3>RT-DETR-R101</h3>
+      <p class="body-text">54.3% AP<br>73 FPS<br>高精度场景</p>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:24px;">
+    <p><span class="accent-word">独特优势：</span>与YOLO需要训练不同尺度模型不同，RT-DETR只需调整解码器层数即可实现速度-精度权衡，大幅降低部署成本。</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 14: 总结 ==================== -->
+<section class="slide">
+  <div class="anim slide-label">Conclusion</div>
+  <div class="anim"><h2>总结与贡献</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="margin-top:12px;">
+    <ul class="bullet-list">
+      <li>提出 <span class="em">RT-DETR</span>，首个实时端到端目标检测器，速度和精度同时超越YOLO系列</li>
+      <li>设计 <span class="em">高效混合编码器</span>，通过解耦尺度内交互和跨尺度融合，大幅降低计算量</li>
+      <li>提出 <span class="em">不确定性最小查询选择</span>，为解码器提供高质量的初始查询</li>
+      <li>支持 <span class="em">灵活的速度调整</span>，无需重新训练即可适应不同实时性需求</li>
+      <li>为实时目标检测领域提供了 <span class="em">端到端的新范式</span>，推动DETR在工业界的应用</li>
+    </ul>
+  </div>
+  <div class="anim quote-block" style="margin-top:24px;">
+    <p>"RT-DETR证明了DETR架构在实时检测场景下的可行性，开启了端到端实时目标检测的新篇章。"</p>
+  </div>
+</section>
+
+<!-- ==================== SLIDE 15: 结尾 ==================== -->
+<section class="slide">
+  <div class="glow glow-purple" style="top:50%;left:50%;transform:translate(-50%,-50%);"></div>
+  <div class="end-card">
+    <div class="anim"><h2 style="color:var(--title);">感谢聆听</h2></div>
+    <div class="anim divider divider-accent" style="margin:16px auto;"></div>
+    <div class="anim subtitle" style="max-width:580px;text-align:center;margin:0 auto;">
+      DETRs Beat YOLOs on Real-time Object Detection<br>
+      <span style="color:var(--accent);font-weight:500;">RT-DETR: 实时端到端目标检测的新标杆</span>
+    </div>
+    <div class="anim cover-meta" style="margin-top:28px;">
+      <span class="cover-tag">CVPR 2024 Oral</span>
+      <span class="cover-tag">Baidu Inc.</span>
+      <span class="cover-tag">Q & A</span>
+    </div>
+  </div>
+</section>
+
+</div><!-- /deck -->
+
+<!-- NAVIGATION -->
+<div class="controls">
+  <button id="prevBtn" title="上一页">‹</button>
+  <span class="counter" id="counter">01 / 15</span>
+  <button id="nextBtn" title="下一页">›</button>
+</div>
+
+<script>
+(function() {
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+
+  const counter = document.getElementById('counter');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const progress = document.getElementById('progress');
+  const dotsWrap = document.getElementById('dots');
+  const hint = document.getElementById('hint');
+
+  for (let i = 0; i < total; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.addEventListener('click', () => goTo(i));
+    dotsWrap.appendChild(d);
+  }
+  const dots = dotsWrap.querySelectorAll('.dot');
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  function goTo(idx) {
+    if (idx < 0 || idx >= total || idx === current) return;
+    const prev = slides[current];
+    const next = slides[idx];
+
+    prev.classList.remove('active');
+    prev.classList.add('exit-up');
+
+    requestAnimationFrame(() => {
+      next.classList.remove('exit-up');
+      next.classList.add('active');
+    });
+
+    setTimeout(() => {
+      prev.classList.remove('exit-up');
+    }, 700);
+
+    dots[current].classList.remove('active');
+    current = idx;
+    dots[current].classList.add('active');
+    counter.textContent = pad(current + 1) + ' / ' + pad(total);
+    progress.style.width = ((current + 1) / total * 100) + '%';
+    prevBtn.disabled = current === 0;
+    nextBtn.disabled = current === total - 1;
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  slides[0].classList.add('active');
+  prevBtn.disabled = true;
+  progress.style.width = (1 / total * 100) + '%';
+
+  prevBtn.addEventListener('click', prev);
+  nextBtn.addEventListener('click', next);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); next(); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prev(); }
+    if (e.key === 'Home') { e.preventDefault(); goTo(0); }
+    if (e.key === 'End') { e.preventDefault(); goTo(total - 1); }
+  });
+
+  let touchX = 0, touchY = 0;
+  document.addEventListener('touchstart', (e) => {
+    touchX = e.changedTouches[0].screenX;
+    touchY = e.changedTouches[0].screenY;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].screenX - touchX;
+    const dy = e.changedTouches[0].screenY - touchY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      dx < 0 ? next() : prev();
+    }
+  }, { passive: true });
+
+  function hideHint() { hint.classList.add('hidden'); }
+  document.addEventListener('keydown', hideHint, { once: true });
+  document.addEventListener('click', hideHint, { once: true });
+  setTimeout(() => hideHint(), 5000);
+})();
+</script>
+
+</body>
+</html>

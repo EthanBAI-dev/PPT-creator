@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="../assets/favicon.png" type="image/png" />
+<title>Ultralytics YOLO26: Unified Real-Time End-to-End Vision Models</title>
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #ffffff;
+  --text: #000000;
+  --title: #3966A2;
+  --accent: #132843;
+  --dim: #6191D3;
+  --card-bg: #f7f9fc;
+  --border: #e2e8f0;
+  --radius: 12px;
+}
+
+html { font-size: 16px; scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', 'Noto Sans SC', -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  height: 100vh;
+  cursor: default;
+  user-select: none;
+}
+
+.deck {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 5vh 7vw;
+  background: var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(60px) scale(0.97);
+  transition: opacity 0.6s cubic-bezier(.4,0,.2,1),
+              transform 0.6s cubic-bezier(.4,0,.2,1),
+              visibility 0.6s;
+  will-change: opacity, transform;
+}
+
+.slide.active {
+  opacity: 1 !important;
+  visibility: visible !important;
+  transform: translateY(0) scale(1) !important;
+}
+
+.slide.exit-up {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-60px) scale(0.97);
+}
+
+/* Progress Bar */
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--title), var(--accent));
+  z-index: 100;
+  transition: width 0.5s cubic-bezier(.4,0,.2,1);
+  border-radius: 0 1px 1px 0;
+}
+
+/* Dots */
+.dots {
+  position: fixed;
+  right: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 100;
+}
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #ccc;
+  cursor: pointer;
+  transition: background 0.3s, transform 0.3s;
+}
+.dot.active {
+  background: var(--title);
+  transform: scale(1.6);
+}
+.dot:hover { background: #999; }
+
+.hint {
+  position: fixed;
+  bottom: 86px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  color: #999;
+  z-index: 90;
+  opacity: 1;
+  transition: opacity 1s;
+  pointer-events: none;
+}
+.hint.hidden { opacity: 0; }
+
+/* Typography */
+.slide-label {
+  font-size: clamp(11px, 1.1vw, 14px);
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 12px;
+}
+
+h1 {
+  font-size: clamp(32px, 4.5vw, 58px);
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--text);
+  letter-spacing: -1.5px;
+}
+h1 .highlight { color: var(--title); }
+h1 .accent { color: var(--accent); }
+
+h2 {
+  font-size: clamp(26px, 3.2vw, 44px);
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--title);
+  letter-spacing: -1px;
+}
+
+h3 {
+  font-size: clamp(16px, 1.7vw, 24px);
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.subtitle {
+  font-size: clamp(16px, 1.7vw, 22px);
+  font-weight: 400;
+  color: #555;
+  line-height: 1.55;
+  margin-top: 16px;
+  max-width: 720px;
+}
+
+.body-text {
+  font-size: clamp(15px, 1.5vw, 20px);
+  font-weight: 400;
+  color: #333;
+  line-height: 1.65;
+}
+
+.small-text {
+  font-size: clamp(12px, 1.1vw, 15px);
+  color: #777;
+  line-height: 1.5;
+}
+
+/* Divider */
+.divider {
+  width: 48px;
+  height: 3px;
+  background: var(--title);
+  border-radius: 2px;
+  margin: 16px 0;
+}
+.divider-accent { background: var(--accent); }
+
+/* Badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(57,102,162,0.08);
+  border: 1px solid rgba(57,102,162,0.15);
+  border-radius: 100px;
+  padding: 8px 16px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--title);
+  letter-spacing: 0.06em;
+  margin-bottom: 40px;
+  text-transform: uppercase;
+  width: fit-content;
+}
+.badge .dot-yellow {
+  width: 7px; height: 7px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.badge .dot-gray {
+  width: 4px; height: 4px;
+  background: rgba(57,102,162,0.3);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Cards */
+.card-grid {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  flex: 0;
+}
+.card-grid.cols-2 { grid-template-columns: 1fr 1fr; }
+.card-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.card-grid.cols-4 { grid-template-columns: 1fr 1fr 1fr 1fr; }
+
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(18px, 2.2vw, 28px);
+  display: flex;
+  flex-direction: column;
+}
+.card .card-num {
+  font-size: clamp(32px, 3.5vw, 48px);
+  font-weight: 800;
+  color: var(--title);
+  opacity: 0.25;
+  line-height: 1;
+  margin-bottom: 8px;
+}
+.card h3 { font-size: clamp(15px, 1.6vw, 22px); margin-bottom: 8px; color: var(--accent); }
+.card .body-text { font-size: clamp(13px, 1.3vw, 17px); }
+
+/* Highlight Bar */
+.highlight-bar {
+  background: rgba(57,102,162,0.06);
+  border-left: 3px solid var(--dim);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: clamp(14px, 1.8vw, 22px) clamp(18px, 2.2vw, 28px);
+  margin-top: 14px;
+}
+.highlight-bar p {
+  font-size: clamp(15px, 1.5vw, 19px);
+  color: var(--text);
+  line-height: 1.6;
+}
+.highlight-bar .accent-word {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Bullet List */
+.bullet-list {
+  list-style: none;
+  padding: 0;
+  margin-top: 12px;
+}
+.bullet-list li {
+  font-size: clamp(14px, 1.4vw, 19px);
+  color: #333;
+  line-height: 1.7;
+  padding: 4px 0 4px 22px;
+  position: relative;
+}
+.bullet-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 13px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--title);
+}
+.bullet-list li .em {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+/* Quote Block */
+.quote-block {
+  border-left: 3px solid var(--accent);
+  padding: 16px 24px;
+  background: rgba(19,40,67,0.03);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  margin: 16px 0;
+}
+.quote-block p {
+  font-size: clamp(15px, 1.5vw, 20px);
+  font-weight: 500;
+  color: var(--accent);
+  line-height: 1.6;
+  font-style: italic;
+}
+
+/* Cover Meta */
+.cover-meta {
+  margin-top: 32px;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cover-tag {
+  font-size: clamp(11px, 1vw, 14px);
+  font-weight: 500;
+  color: var(--dim);
+  background: rgba(57,102,162,0.06);
+  border: 1px solid rgba(57,102,162,0.12);
+  padding: 5px 14px;
+  border-radius: 100px;
+}
+
+/* Steps */
+.steps {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+  align-items: stretch;
+}
+.step {
+  flex: 1;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: clamp(16px, 2vw, 28px) clamp(12px, 1.5vw, 24px);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.step .step-num {
+  font-size: clamp(10px, 0.9vw, 14px);
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+.step .step-icon { font-size: clamp(22px, 2.5vw, 32px); margin-bottom: 8px; }
+.step h3 { font-size: clamp(14px, 1.3vw, 18px); margin-bottom: 4px; }
+.step-arrow {
+  display: flex;
+  align-items: center;
+  font-size: 18px;
+  color: #ccc;
+}
+
+/* End Card */
+.end-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.end-card h2 {
+  font-size: clamp(30px, 3.5vw, 50px);
+  margin-bottom: 12px;
+}
+
+/* Glow */
+.glow {
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  filter: blur(120px);
+  opacity: 0.08;
+  pointer-events: none;
+}
+.glow-purple { background: var(--title); }
+.glow-yellow { background: var(--accent); }
+
+/* VS Row */
+.vs-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  margin-top: 16px;
+}
+.vs-col {
+  flex: 1;
+  border-radius: var(--radius);
+  padding: clamp(16px, 1.8vw, 24px);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.vs-col.left-col {
+  background: rgba(239,68,68,0.04);
+  border: 1px solid rgba(239,68,68,0.15);
+}
+.vs-col.right-col {
+  background: rgba(34,197,94,0.04);
+  border: 1px solid rgba(34,197,94,0.15);
+}
+.vs-col .vs-tag {
+  display: inline-block;
+  font-size: clamp(10px, 0.9vw, 12px);
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  width: fit-content;
+}
+.vs-col.left-col .vs-tag {
+  background: rgba(239,68,68,0.1);
+  color: #b91c1c;
+}
+.vs-col.right-col .vs-tag {
+  background: rgba(34,197,94,0.1);
+  color: #15803d;
+}
+.vs-col h3 { font-size: clamp(16px, 1.6vw, 22px); margin-bottom: 10px; }
+.vs-col ul { list-style: none; padding: 0; }
+.vs-col ul li {
+  font-size: clamp(13px, 1.2vw, 16px);
+  color: #333;
+  line-height: 1.55;
+  padding: 3px 0 3px 22px;
+  position: relative;
+}
+.vs-col ul li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 11px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.vs-col.left-col ul li::before { background: #ef4444; }
+.vs-col.right-col ul li::before { background: #22c55e; }
+
+/* Data Table */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: clamp(11px, 1vw, 14px);
+  margin-top: 16px;
+}
+.data-table th {
+  text-align: left;
+  padding: 8px 10px;
+  background: var(--card-bg);
+  color: var(--title);
+  font-weight: 600;
+  border-bottom: 2px solid var(--border);
+  font-size: clamp(10px, 0.9vw, 13px);
+}
+.data-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  color: #333;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table .highlight-row { background: rgba(57,102,162,0.04); }
+.data-table .highlight-row td { font-weight: 600; color: var(--title); }
+
+/* Figure Container */
+.figure-box {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 16px;
+}
+.figure-box img {
+  max-width: 100%;
+  max-height: 45vh;
+  border-radius: 8px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.06);
+}
+.figure-caption {
+  text-align: center;
+  font-size: clamp(10px, 0.9vw, 13px);
+  color: #999;
+  margin-top: 8px;
+}
+
+/* Contributors */
+.contributors {
+  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.contributors .author {
+  font-size: clamp(14px, 1.3vw, 18px);
+  color: #555;
+  font-weight: 400;
+}
+
+/* Animations */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.slide.active .anim { animation: fadeUp 0.5s ease both; }
+.slide.active .anim:nth-child(1) { animation-delay: 0.08s; }
+.slide.active .anim:nth-child(2) { animation-delay: 0.16s; }
+.slide.active .anim:nth-child(3) { animation-delay: 0.24s; }
+.slide.active .anim:nth-child(4) { animation-delay: 0.32s; }
+.slide.active .anim:nth-child(5) { animation-delay: 0.40s; }
+.slide.active .anim:nth-child(6) { animation-delay: 0.48s; }
+.slide.active .anim:nth-child(7) { animation-delay: 0.56s; }
+.slide.active .anim:nth-child(8) { animation-delay: 0.64s; }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .slide { padding: 4vh 5vw; }
+  .card-grid.cols-2, .card-grid.cols-3, .card-grid.cols-4 { grid-template-columns: 1fr; }
+  .vs-row { flex-direction: column; gap: 12px; }
+  .steps { flex-direction: column; }
+  .dots { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="progress" id="progress"></div>
+<div class="dots" id="dots"></div>
+<div class="hint" id="hint">← → 或点击翻页</div>
+
+<div class="deck" id="deck">
+
+<!-- ═══════════ Slide 1: 封面 ═══════════ -->
+<section class="slide">
+  <div class="glow glow-purple" style="top:-100px;left:-100px;"></div>
+  <div class="glow glow-yellow" style="bottom:-100px;right:-100px;"></div>
+  <div class="anim badge">
+    <span class="dot-yellow"></span>
+    TECHNICAL REPORT
+    <span class="dot-gray"></span>
+    2026
+  </div>
+  <div class="anim" style="font-size: clamp(2.2rem, 4.5vw, 3.6rem); font-weight: 900; line-height: 1.15;">
+    <span class="highlight">Ultralytics YOLO26:</span><br>
+    <span style="color: var(--text);">Unified Real-Time</span><br>
+    <span class="accent">End-to-End Vision Models</span>
+  </div>
+  <p class="anim subtitle">统一实时端到端视觉模型家族</p>
+  <div class="anim contributors">
+    <span class="author">Glenn Jocher · Jing Qiu · Mengyu Liu · Shuai Lyu · Fatih Cagatay Akyon · Muhammet Esat Kalfaoglu</span>
+  </div>
+  <div class="anim cover-meta">
+    <span class="cover-tag">Ultralytics</span>
+    <span class="cover-tag">arXiv:2606.03748</span>
+    <span class="cover-tag">Computer Vision</span>
+    <span class="cover-tag">Real-Time Detection</span>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 2: 摘要 ═══════════ -->
+<section class="slide">
+  <div class="glow glow-purple" style="top:-80px;right:-80px;width:300px;height:300px;"></div>
+  <div class="anim slide-label">Abstract</div>
+  <div class="anim"><h2>研究摘要</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim highlight-bar">
+    <p>
+      实时视觉需求模型在准确、高效且易于跨硬件部署。YOLO系列虽已广泛应用，但大多数YOLO检测器仍依赖<span class="accent-word">NMS后处理</span>、因DFL导致检测头过重、需要长训练周期，且小目标可能无法获得正标签分配。
+    </p>
+  </div>
+  <div class="anim bullet-list" style="margin-top:20px;">
+    <li>提出 <span class="em">YOLO26</span> —— 统一实时视觉模型家族，通过协调的架构与训练改进解决上述局限</li>
+    <li>双头设计实现原生 <span class="em">NMS-free</span> 端到端推理，移除DFL获得更轻量检测头</li>
+    <li>三项训练技术：MuSGD优化器、Progressive Loss、STAL小目标感知标签分配</li>
+    <li>支持检测、实例分割、姿态估计、分类、定向检测及开放词汇扩展 YOLOE-26</li>
+    <li>COCO上达到 <span class="em">40.9–57.5 mAP</span>，T4 TensorRT延迟仅 1.7–11.8ms</li>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 3: 引言 - 背景与动机 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Introduction</div>
+  <div class="anim"><h2>背景与动机</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim vs-row">
+    <div class="vs-col left-col">
+      <span class="vs-tag">现有局限</span>
+      <h3>当前YOLO检测器的问题</h3>
+      <ul>
+        <li>推理仍依赖NMS后处理，增加部署复杂度</li>
+        <li>DFL模块使检测头参数膨胀（4标量→4K logits）</li>
+        <li>标准SGD需约600 epoch才能达到竞争力精度</li>
+        <li>TAL标签分配导致极小目标零正样本分配</li>
+      </ul>
+    </div>
+    <div class="vs-col right-col">
+      <span class="vs-tag">本文目标</span>
+      <h3>YOLO26的解决方案</h3>
+      <ul>
+        <li>双头设计：原生NMS-free端到端推理路径</li>
+        <li>完全移除DFL，直接回归获得无约束范围</li>
+        <li>MuSGD加速收敛，减少训练周期</li>
+        <li>STAL保证小目标的正样本覆盖</li>
+      </ul>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:20px;">
+    <p>核心挑战：在<span class="accent-word">保持部署通用性</span>与<span class="accent-word">多任务统一性</span>的前提下，解决NMS依赖、DFL开销、训练效率和小目标分配四大瓶颈</p>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 4: 引言 - 主要贡献 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Contributions</div>
+  <div class="anim"><h2>主要贡献</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim card-grid cols-2">
+    <div class="card">
+      <span class="card-num">01</span>
+      <h3>DFL-free 双头架构</h3>
+      <p class="body-text">原生NMS-free端到端推理，更轻量的回归头，无约束边界框范围，保留可选密集分支用于精度关键部署</p>
+    </div>
+    <div class="card">
+      <span class="card-num">02</span>
+      <h3>协调训练管线</h3>
+      <p class="body-text">MuSGD（混合Muon+SGD优化器）+ Progressive Loss（渐进损失重加权）+ STAL（小目标感知标签分配）</p>
+    </div>
+    <div class="card">
+      <span class="card-num">03</span>
+      <h3>多任务扩展</h3>
+      <p class="body-text">实例分割（多尺度原型融合+辅助语义监督）、姿态估计（RLE不确定性感知回归）、定向检测（长边角度公式）</p>
+    </div>
+    <div class="card">
+      <span class="card-num">04</span>
+      <h3>开放词汇 YOLOE-26</h3>
+      <p class="body-text">支持文本提示、视觉提示和无提示三种推理模式，YOLOE-26x在LVIS minival达40.6 AP</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 5: 相关工作 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Related Work</div>
+  <div class="anim"><h2>相关工作综述</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim card-grid cols-3">
+    <div class="card">
+      <span class="card-num">A</span>
+      <h3>CNN检测器演进</h3>
+      <p class="body-text">两阶段(Faster R-CNN) → 一阶段(SSD/YOLO) → Anchor-free(FCOS/YOLOv8) → NMS-free(YOLOv10)</p>
+    </div>
+    <div class="card">
+      <span class="card-num">B</span>
+      <h3>Transformer检测器</h3>
+      <p class="body-text">DETR端到端集合预测 → Deformable DETR → RT-DETR实时优化 → D-FINE/DEIMv2持续改进</p>
+    </div>
+    <div class="card">
+      <span class="card-num">C</span>
+      <h3>开放词汇检测</h3>
+      <p class="body-text">文本提示(GLIP/Grounding DINO/YOLO-World) → 视觉提示(OWL-ViT/T-Rex2) → 无提示(GRiT/YOLOE)</p>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:20px;">
+    <p>YOLO26的<span class="accent-word">核心差异化</span>：在保持YOLO部署通用性（19+导出目标）和多任务统一性的同时，通过架构与训练的协调改进实现端到端NMS-free推理</p>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 6: 方法 - 架构总览 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Architecture</div>
+  <div class="anim"><h2>YOLO26 架构设计</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+    <div>
+      <div class="highlight-bar">
+        <p>YOLO26围绕<span class="accent-word">三个设计目标</span>：端到端简洁性、部署效率、更强优化</p>
+      </div>
+      <div class="bullet-list" style="margin-top:16px;">
+        <li><span class="em">One-to-One Head</span>：默认NMS-free路径，最多300个检测，TAL topk=7+topk2=1</li>
+        <li><span class="em">One-to-Many Head</span>：密集预测，TAL topk=10，训练时提供更丰富正监督</li>
+        <li><span class="em">DFL移除</span>：直接回归替代分布回归，4K logits→4标量，头参数大幅减少</li>
+        <li>支持19种导出目标：ONNX、TensorRT、CoreML、TFLite、OpenVINO等</li>
+      </div>
+    </div>
+    <div class="figure-box">
+      <img src="Ultralytics YOLO26 Unified Real-Time End-to-End Vision Models/crop_001_page001_reg1.png" alt="YOLO26 Accuracy-Latency Trade-off" style="max-height:38vh;">
+    </div>
+  </div>
+  <p class="figure-caption anim">图：COCO val2017上的精度-延迟权衡，YOLO26在各尺度上均位于或推进Pareto前沿</p>
+</section>
+
+<!-- ═══════════ Slide 7: 方法 - 训练管线 ═══════════ -->
+<section class="slide">
+  <div class="glow glow-purple" style="top:-60px;right:-60px;width:250px;height:250px;"></div>
+  <div class="anim slide-label">Training Pipeline</div>
+  <div class="anim"><h2>训练管线：三大核心组件</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim steps">
+    <div class="step">
+      <span class="step-num">COMPONENT 01</span>
+      <span class="step-icon">⚡</span>
+      <h3>MuSGD 优化器</h3>
+      <p class="small-text">Muon+SGD混合优化，多维参数使用正交化更新，1D参数使用纯SGD，加速收敛并提升稳定性</p>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <span class="step-num">COMPONENT 02</span>
+      <span class="step-icon">📉</span>
+      <h3>Progressive Loss</h3>
+      <p class="small-text">渐进式损失重加权，从(0.8, 0.2)线性过渡到(0.1, 0.9)，将优化焦点从密集分支转向端到端分支</p>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <span class="step-num">COMPONENT 03</span>
+      <span class="step-icon">🎯</span>
+      <h3>STAL 标签分配</h3>
+      <p class="small-text">小目标感知标签分配，将小于最小步长的目标尺寸钳位到参考尺寸，保证零正样本情况下的监督覆盖</p>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:20px;">
+    <p>总检测损失：<span class="accent-word">L_total = α(t) · L_o2m + (1−α(t)) · L_o2o</span>，其中α(t)随epoch线性衰减，实现从密集监督到推理监督的平滑过渡</p>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 8: 方法 - DFL移除与双头设计 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Architecture Detail</div>
+  <div class="anim"><h2>DFL移除与双头设计</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim vs-row">
+    <div class="vs-col left-col">
+      <span class="vs-tag">传统DFL</span>
+      <h3>Distribution Focal Loss</h3>
+      <ul>
+        <li>每边预测K个bin的离散分布（K=16）</li>
+        <li>回归从4标量膨胀至4K logits</li>
+        <li>YOLO11n：2.6M参数 / 6.5 GFLOPs</li>
+        <li>有限回归范围：(K−1)×stride</li>
+        <li>高分辨率下对大目标受限</li>
+      </ul>
+    </div>
+    <div class="vs-col right-col">
+      <span class="vs-tag">YOLO26改进</span>
+      <h3>直接回归 + L1 Loss</h3>
+      <ul>
+        <li>直接预测4个边界框标量</li>
+        <li>无约束回归范围</li>
+        <li>YOLO26n：2.4M参数 / 5.4 GFLOPs</li>
+        <li>1280分辨率下大目标更完整</li>
+        <li>简化导出，兼容受限运行时</li>
+      </ul>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:16px;">
+    <p>移除DFL后，通过 <span class="accent-word">Progressive Loss</span> 和 <span class="accent-word">STAL</span> 完全恢复并超越原精度，同时获得更轻量的头和更快的推理</p>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 9: 方法 - 任务特定扩展 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Task Extensions</div>
+  <div class="anim"><h2>任务特定扩展</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim card-grid cols-3">
+    <div class="card">
+      <span class="card-num">01</span>
+      <h3>实例分割</h3>
+      <p class="body-text">多尺度原型通路融合高层语义上下文 + 训练-only辅助语义分割损失（BCE+Dice），不增加推理开销</p>
+    </div>
+    <div class="card">
+      <span class="card-num">02</span>
+      <h3>姿态估计</h3>
+      <p class="body-text">RLE残差对数似然估计替代传统回归，联合OKS损失，实现每关节不确定性建模与更精确关键点定位</p>
+    </div>
+    <div class="card">
+      <span class="card-num">03</span>
+      <h3>定向检测</h3>
+      <p class="body-text">长边角度定义[−45°, 135°)替代OpenCV约定，直接预测角度去除sigmoid压缩，专用角度损失解决方形物体歧义</p>
+    </div>
+  </div>
+  <div class="anim card-grid cols-3" style="margin-top:12px;">
+    <div class="card">
+      <span class="card-num" style="font-size:24px;">+3.7</span>
+      <h3>Mask AP 提升</h3>
+      <p class="body-text">COCO实例分割相比YOLO11</p>
+    </div>
+    <div class="card">
+      <span class="card-num" style="font-size:24px;">+7.2</span>
+      <h3>Pose AP 提升</h3>
+      <p class="body-text">COCO关键点相比YOLO11</p>
+    </div>
+    <div class="card">
+      <span class="card-num" style="font-size:24px;">+3.4</span>
+      <h3>OBB mAP 提升</h3>
+      <p class="body-text">DOTA-v1.0相比YOLO11</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 10: 方法 - YOLOE-26 开放词汇 ═══════════ -->
+<section class="slide">
+  <div class="glow glow-yellow" style="bottom:-80px;left:-80px;width:300px;height:300px;"></div>
+  <div class="anim slide-label">Open Vocabulary</div>
+  <div class="anim"><h2>YOLOE-26 开放词汇检测</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+    <div>
+      <div class="highlight-bar">
+        <p>YOLOE-26在YOLO26检测器基础上引入<span class="accent-word">四项关键改进</span></p>
+      </div>
+      <div class="bullet-list" style="margin-top:16px;">
+        <li><span class="em">Backbone升级</span>：YOLO26骨干替代YOLO11，迁移闭集改进</li>
+        <li><span class="em">文本编码器升级</span>：MobileCLIP → MobileCLIP2，更强的文本-视觉对齐</li>
+        <li><span class="em">数据引擎</span>：使用YOLOE教师模型生成伪标签，4585类词汇精炼训练集</li>
+        <li><span class="em">解耦分割训练</span>：分割头在独立阶段训练，减少任务干扰</li>
+      </div>
+    </div>
+    <div>
+      <div class="card-grid cols-1" style="gap:12px;">
+        <div class="card">
+          <span class="card-num" style="font-size:20px;">文本提示</span>
+          <p class="body-text">RepRTA策略，MobileCLIP2文本编码器，区域特征与文本嵌入对齐</p>
+        </div>
+        <div class="card">
+          <span class="card-num" style="font-size:20px;">视觉提示</span>
+          <p class="body-text">SAVPE模块，解耦语义与激活分支生成视觉嵌入</p>
+        </div>
+        <div class="card">
+          <span class="card-num" style="font-size:20px;">无提示</span>
+          <p class="body-text">LRPCHead利用内置词汇和专用特征嵌入检测通用目标</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 11: 实验设置 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Experiments</div>
+  <div class="anim"><h2>实验设置</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim card-grid cols-2">
+    <div class="card">
+      <span class="card-num">📊</span>
+      <h3>数据集与模型</h3>
+      <p class="body-text">COCO 2017 / DOTA-v1.0 / LVIS minival<br>5个变体: n / s / m / l / x<br>640×640 输入分辨率<br>Objects365-v1预训练150 epoch</p>
+    </div>
+    <div class="card">
+      <span class="card-num">⚙️</span>
+      <h3>训练配置</h3>
+      <p class="body-text">COCO微调：n/s/m/l/x 分别为 245/70/80/60/40 epoch<br>全局batch size: 128<br>Progressive Loss: (0.8,0.2)→(0.1,0.9)<br>STAL: s_ref=16, s_min=8</p>
+    </div>
+  </div>
+  <div class="anim card-grid cols-2" style="margin-top:12px;">
+    <div class="card">
+      <span class="card-num">🖥️</span>
+      <h3>测试平台</h3>
+      <p class="body-text">T4 GPU + TensorRT10 FP16<br>CPU: Intel Xeon @ 2.00 GHz<br>ONNX格式CPU推理基准</p>
+    </div>
+    <div class="card">
+      <span class="card-num">📏</span>
+      <h3>评估指标</h3>
+      <p class="body-text">mAP (AP⁵⁰:⁹⁵, AP⁵⁰, AP⁷⁵)<br>APS / APM / APL<br>参数量 & FLOPs<br>推理延迟 (ms) — GPU/CPU</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 12: 主要结果 - COCO检测 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Results</div>
+  <div class="anim"><h2>COCO 主要检测结果</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim" style="overflow:auto;flex:1;">
+    <table class="data-table">
+      <thead>
+        <tr><th>Model</th><th>Size</th><th>mAP</th><th>mAP (E2E)</th><th>CPU ONNX (ms)</th><th>T4 TRT10 (ms)</th><th>Params (M)</th><th>FLOPs (B)</th></tr>
+      </thead>
+      <tbody>
+        <tr class="highlight-row"><td>YOLO26n</td><td>640</td><td>40.9</td><td>40.1</td><td>38.9</td><td>1.7</td><td>2.4</td><td>5.4</td></tr>
+        <tr><td>YOLO11n</td><td>640</td><td>39.3</td><td>—</td><td>—</td><td>1.5</td><td>2.6</td><td>6.5</td></tr>
+        <tr class="highlight-row"><td>YOLO26s</td><td>640</td><td>48.6</td><td>47.8</td><td>87.2</td><td>2.5</td><td>9.5</td><td>20.7</td></tr>
+        <tr><td>YOLO11s</td><td>640</td><td>47.0</td><td>—</td><td>—</td><td>2.5</td><td>9.4</td><td>21.5</td></tr>
+        <tr class="highlight-row"><td>YOLO26m</td><td>640</td><td>53.1</td><td>52.5</td><td>220.0</td><td>4.7</td><td>20.4</td><td>68.2</td></tr>
+        <tr class="highlight-row"><td>YOLO26l</td><td>640</td><td>55.0</td><td>54.4</td><td>286.2</td><td>6.2</td><td>24.8</td><td>86.4</td></tr>
+        <tr class="highlight-row"><td>YOLO26x</td><td>640</td><td>57.5</td><td>56.9</td><td>525.8</td><td>11.8</td><td>55.7</td><td>193.9</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="anim small-text" style="margin-top:8px;">YOLO26在所有尺度上均取得最优精度，E2E路径与NMS路径差距仅0.6–0.8 AP。CPU ONNX推理速度提升最高43%。</p>
+</section>
+
+<!-- ═══════════ Slide 13: 消融实验 - 逐步进化 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Ablation</div>
+  <div class="anim"><h2>消融实验：从YOLO11s到YOLO26s</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim" style="overflow:auto;flex:1;">
+    <table class="data-table">
+      <thead>
+        <tr><th>Configuration</th><th>AP (E2E)</th><th>AP (Non-E2E)</th><th>Params (M)</th><th>FLOPs (G)</th><th>Latency (ms)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>YOLO11s (Baseline)</td><td>—</td><td>47.0</td><td>9.4</td><td>21.5</td><td>2.5</td></tr>
+        <tr><td>−DFL</td><td>—</td><td>46.4</td><td>9.1</td><td>20.1</td><td>2.3</td></tr>
+        <tr><td>+ L1 Loss</td><td>—</td><td>46.6</td><td>9.1</td><td>20.1</td><td>2.3</td></tr>
+        <tr><td>+ STAL</td><td>—</td><td>46.8</td><td>9.1</td><td>20.1</td><td>2.3</td></tr>
+        <tr><td>+ Backbone/neck refinement</td><td>—</td><td>47.0</td><td>9.5</td><td>20.7</td><td>2.5</td></tr>
+        <tr><td>+ E2E training</td><td>46.4</td><td>47.0</td><td>9.5</td><td>20.7</td><td>2.5</td></tr>
+        <tr><td>+ Progressive Loss</td><td>46.7</td><td>47.2</td><td>9.5</td><td>20.7</td><td>2.5</td></tr>
+        <tr><td>+ MuSGD</td><td>47.1</td><td>47.6</td><td>9.5</td><td>20.7</td><td>2.5</td></tr>
+        <tr><td>+ Objects365 Pretrained</td><td>47.4</td><td>48.0</td><td>9.5</td><td>20.7</td><td>2.5</td></tr>
+        <tr class="highlight-row"><td>+ Hyperparameter Search (Final)</td><td>47.8</td><td>48.6</td><td>9.5</td><td>20.7</td><td>2.5</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="anim bullet-list" style="margin-top:12px;">
+    <li>移除DFL降低复杂度，STAL与骨干改进恢复并提升精度</li>
+    <li>端到端训练+Progressive Loss改善one-to-one分支，MuSGD与预训练提供剩余增益</li>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 14: 消融实验 - 核心设计 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Ablation</div>
+  <div class="anim"><h2>核心设计消融</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim card-grid cols-2">
+    <div class="card">
+      <span class="card-num">MuSGD</span>
+      <h3>优化器对比</h3>
+      <p class="body-text">SGD 600 epochs: 47.0 mAP<br>MuSGD 500 epochs: 47.4 mAP<br><span class="em">+0.4 mAP，减少16.7%训练周期</span></p>
+    </div>
+    <div class="card">
+      <span class="card-num">Progressive</span>
+      <h3>损失调度对比</h3>
+      <p class="body-text">固定(0.5,0.5): 46.4 E2E AP<br>最优(0.8,0.2)→(0.1,0.9): <span class="em">46.7 E2E AP</span><br>早期给one-to-one分支非零监督是关键</p>
+    </div>
+  </div>
+  <div class="anim card-grid cols-2" style="margin-top:12px;">
+    <div class="card">
+      <span class="card-num">STAL</span>
+      <h3>参考尺寸 s_ref 对比</h3>
+      <p class="body-text">TAL baseline: 46.6 AP (APS 29.0)<br>STAL s_ref=16: <span class="em">46.8 AP (APS 29.6)</span><br>s_ref=8/32均不如baseline，确认s_ref=16最优</p>
+    </div>
+    <div class="card">
+      <span class="card-num">DFL</span>
+      <h3>分辨率消融</h3>
+      <p class="body-text">640分辨率: 无DFL +0.3 AP / +1.0 APL<br>1280分辨率: 无DFL <span class="em">+1.3 AP / +2.2 APL</span><br>高分辨率下DFL有限范围限制更明显</p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 15: 多任务结果 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Multi-Task Results</div>
+  <div class="anim"><h2>多任务实验结果</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim card-grid cols-3">
+    <div class="card">
+      <span class="card-num">🎭</span>
+      <h3>实例分割 (COCO)</h3>
+      <p class="body-text">多尺度Proto模块: 32.0→32.4 mAP<br>+辅助损失: 32.4→32.7 mAP<br>YOLO26全系列超越YOLO11：<br><span class="em">+1.6~2.5 box AP, +2.4~3.7 mask AP</span></p>
+    </div>
+    <div class="card">
+      <span class="card-num">🧍</span>
+      <h3>姿态估计 (COCO)</h3>
+      <p class="body-text">w_OKS=24 + w_RLE=1 最优配置<br>YOLO26全系列超越YOLO11：<br><span class="em">+2.1~7.2 pose AP</span><br>E2E与NMS路径差异≤0.2 AP</p>
+    </div>
+    <div class="card">
+      <span class="card-num">🔄</span>
+      <h3>定向检测 (DOTA-v1.0)</h3>
+      <p class="body-text">长边角度定义: 47.7→49.0 mAP<br>+角度损失(λ=3): 49.0→50.2 mAP<br>YOLO26全系列超越YOLO11：<br><span class="em">+2.5~3.4 mAP, AP75增益更大</span></p>
+    </div>
+  </div>
+  <div class="anim highlight-bar" style="margin-top:16px;">
+    <p>所有任务扩展均基于<span class="accent-word">共享检测器改进</span>，在统一训练和部署管线内实现一致增益，无需为各任务维护独立模型</p>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 16: YOLOE-26 结果 ═══════════ -->
+<section class="slide">
+  <div class="glow glow-purple" style="bottom:-60px;left:-60px;width:250px;height:250px;"></div>
+  <div class="anim slide-label">YOLOE-26 Results</div>
+  <div class="anim"><h2>开放词汇检测结果</h2></div>
+  <div class="anim divider"></div>
+  <div class="anim" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:start;">
+    <div>
+      <div class="highlight-bar">
+        <p>YOLOE-26s-TP在LVIS minival上的<span class="accent-word">逐步改进</span></p>
+      </div>
+      <div class="bullet-list" style="margin-top:12px;">
+        <li>YOLOE-11s-TP baseline: 27.5 AP</li>
+        <li>+ Backbone升级(YOLO26): 29.0 AP <span class="em">(+1.5)</span></li>
+        <li>+ 解耦分割训练: 29.5 AP <span class="em">(+0.5)</span></li>
+        <li>+ 文本编码器升级(MobileCLIP2): 29.7 AP <span class="em">(+0.2)</span></li>
+        <li>+ 数据引擎(伪标签): <span class="em">31.0 AP (+1.3)</span></li>
+      </div>
+    </div>
+    <div>
+      <div class="card-grid cols-1" style="gap:12px;">
+        <div class="card">
+          <span class="card-num" style="font-size:22px;">40.6 AP</span>
+          <h3>YOLOE-26x 文本提示</h3>
+          <p class="body-text">LVIS minival，超越DetCLIPv3 +6.2 AP</p>
+        </div>
+        <div class="card">
+          <span class="card-num" style="font-size:22px;">38.5 AP</span>
+          <h3>YOLOE-26x 视觉提示</h3>
+          <p class="body-text">LVIS minival，最强视觉提示结果</p>
+        </div>
+        <div class="card">
+          <span class="card-num" style="font-size:22px;">31.1 AP</span>
+          <h3>YOLOE-26l 无提示</h3>
+          <p class="body-text">LVIS minival prompt-free设置</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 17: 部署与导出 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Deployment</div>
+  <div class="anim"><h2>部署与导出能力</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim" style="display:grid;grid-template-columns:1fr 1fr;gap:24px;align-items:center;">
+    <div>
+      <div class="highlight-bar">
+        <p>YOLO26支持<span class="accent-word">19种非PyTorch导出目标</span>，覆盖云、移动端和嵌入式平台</p>
+      </div>
+      <div class="bullet-list" style="margin-top:16px;">
+        <li><span class="em">默认路径</span>：One-to-One NMS-free端到端推理</li>
+        <li><span class="em">可选路径</span>：One-to-Many + NMS，精度优先场景</li>
+        <li>不支持top-K操作的运行时自动回退到非E2E分支</li>
+        <li>CPU ONNX推理速度提升<span class="em">最高43%</span>（YOLO26n vs YOLO11n）</li>
+        <li>更小的模型尺寸和内存占用，特别适合边缘部署</li>
+      </div>
+    </div>
+    <div class="figure-box">
+      <img src="Ultralytics YOLO26 Unified Real-Time End-to-End Vision Models/crop_022_page023_reg1.png" alt="YOLO26 Deployment" style="max-height:42vh;">
+    </div>
+  </div>
+  <p class="figure-caption anim">图：YOLO26部署管线，支持两种推理路径和广泛的导出目标</p>
+</section>
+
+<!-- ═══════════ Slide 18: 总结与讨论 ═══════════ -->
+<section class="slide">
+  <div class="anim slide-label">Conclusion</div>
+  <div class="anim"><h2>总结与讨论</h2></div>
+  <div class="anim divider divider-accent"></div>
+  <div class="anim card-grid cols-2">
+    <div class="card">
+      <span class="card-num">🎯</span>
+      <h3>核心成就</h3>
+      <p class="body-text">成功构建统一实时视觉模型家族，在保持YOLO部署通用性和多任务统一性的同时，实现原生NMS-free端到端推理和SOTA精度-延迟权衡。</p>
+    </div>
+    <div class="card">
+      <span class="card-num">🔬</span>
+      <h3>技术创新</h3>
+      <p class="body-text">DFL-free双头架构、MuSGD加速收敛、Progressive Loss对齐训练与推理、STAL保障小目标监督，四项改进协同作用。</p>
+    </div>
+  </div>
+  <div class="anim card-grid cols-2" style="margin-top:12px;">
+    <div class="card">
+      <span class="card-num">📈</span>
+      <h3>性能表现</h3>
+      <p class="body-text">COCO检测40.9–57.5 mAP，实例分割+3.7 mask AP，姿态估计+7.2 AP，定向检测+3.4 mAP，开放词汇40.6 AP。</p>
+    </div>
+    <div class="card">
+      <span class="card-num">🔮</span>
+      <h3>未来展望</h3>
+      <p class="body-text">超越COCO-centric基准评估、探索自适应损失调度形状、扩展Objects365-v1之外的预训练数据（网络规模或定位语料）。</p>
+    </div>
+  </div>
+  <div class="anim quote-block" style="margin-top:16px;">
+    <p>"YOLO26 combines a dual-head NMS-free architecture with MuSGD, Progressive Loss, and STAL to improve the accuracy–latency trade-off across five model scales and multiple vision tasks."</p>
+  </div>
+</section>
+
+<!-- ═══════════ Slide 19: 结尾 ═══════════ -->
+<section class="slide">
+  <div class="glow glow-purple" style="top:50%;left:50%;transform:translate(-50%,-50%);"></div>
+  <div class="end-card">
+    <div class="anim"><h2 style="color:var(--title);">感谢聆听</h2></div>
+    <div class="anim divider divider-accent" style="margin:16px auto;"></div>
+    <div class="anim subtitle" style="max-width:580px;text-align:center;margin:0 auto;">
+      Ultralytics YOLO26: Unified Real-Time End-to-End Vision Models<br>
+      <span style="color:var(--accent);font-weight:500;">统一实时端到端视觉检测新时代</span>
+    </div>
+    <div class="anim" style="margin-top:24px;font-size:clamp(13px,1.2vw,17px);color:#777;">
+      Glenn Jocher · Jing Qiu · Mengyu Liu · Shuai Lyu · Fatih Cagatay Akyon · Muhammet Esat Kalfaoglu
+    </div>
+    <div class="anim" style="margin-top:8px;font-size:clamp(11px,1vw,14px);color:var(--dim);">
+      arXiv:2606.03748v1 · github.com/ultralytics/ultralytics
+    </div>
+    <div class="anim cover-meta" style="margin-top:28px;">
+      <span class="cover-tag">Questions & Discussion</span>
+    </div>
+  </div>
+</section>
+
+</div><!-- /deck -->
+
+<!-- Navigation Controls -->
+<div class="controls" style="display:none;">
+  <button id="prevBtn" title="上一页">&#8249;</button>
+  <span class="counter" id="counter">01 / 01</span>
+  <button id="nextBtn" title="下一页">&#8250;</button>
+</div>
+
+<script>
+(function() {
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+
+  const counter = document.getElementById('counter');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+  const progress = document.getElementById('progress');
+  const dotsWrap = document.getElementById('dots');
+  const hint = document.getElementById('hint');
+
+  for (let i = 0; i < total; i++) {
+    const d = document.createElement('div');
+    d.className = 'dot' + (i === 0 ? ' active' : '');
+    d.addEventListener('click', () => goTo(i));
+    dotsWrap.appendChild(d);
+  }
+  const dots = dotsWrap.querySelectorAll('.dot');
+
+  function pad(n) { return String(n).padStart(2, '0'); }
+
+  function goTo(idx) {
+    if (idx < 0 || idx >= total || idx === current) return;
+    const prev = slides[current];
+    const next = slides[idx];
+
+    prev.classList.remove('active');
+    prev.classList.add('exit-up');
+
+    requestAnimationFrame(() => {
+      next.classList.remove('exit-up');
+      next.classList.add('active');
+    });
+
+    setTimeout(() => {
+      prev.classList.remove('exit-up');
+    }, 700);
+
+    dots[current].classList.remove('active');
+    current = idx;
+    dots[current].classList.add('active');
+    counter.textContent = pad(current + 1) + ' / ' + pad(total);
+    progress.style.width = ((current + 1) / total * 100) + '%';
+    if (prevBtn) { prevBtn.disabled = current === 0; }
+    if (nextBtn) { nextBtn.disabled = current === total - 1; }
+  }
+
+  function next() { goTo(current + 1); }
+  function prev() { goTo(current - 1); }
+
+  slides[0].classList.add('active');
+  if (prevBtn) prevBtn.disabled = true;
+  progress.style.width = (1 / total * 100) + '%';
+
+  if (prevBtn) prevBtn.addEventListener('click', prev);
+  if (nextBtn) nextBtn.addEventListener('click', next);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') { e.preventDefault(); next(); }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); prev(); }
+    if (e.key === 'Home') { e.preventDefault(); goTo(0); }
+    if (e.key === 'End') { e.preventDefault(); goTo(total - 1); }
+    if (e.key === 'f' || e.key === 'F') {
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else {
+        document.documentElement.requestFullscreen();
+      }
+    }
+  });
+
+  let touchX = 0, touchY = 0;
+  document.addEventListener('touchstart', (e) => {
+    touchX = e.changedTouches[0].screenX;
+    touchY = e.changedTouches[0].screenY;
+  }, { passive: true });
+  document.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].screenX - touchX;
+    const dy = e.changedTouches[0].screenY - touchY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      dx < 0 ? next() : prev();
+    }
+  }, { passive: true });
+
+  function hideHint() { hint.classList.add('hidden'); }
+  document.addEventListener('keydown', hideHint, { once: true });
+  document.addEventListener('click', hideHint, { once: true });
+  setTimeout(() => hideHint(), 5000);
+})();
+</script>
+
+</body>
+</html>
